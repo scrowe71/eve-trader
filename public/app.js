@@ -16,6 +16,12 @@
     "esi-universe.read_structures.v1",
   ];
   // Extra permissions for the Trade journal (wallet transactions + journal).
+  // Delivery alerts: the token goes straight to the server (functions/api/watch.js), never kept here.
+  const ALERT_SCOPES = [
+    "esi-contracts.read_character_contracts.v1",
+    "esi-contracts.read_corporation_contracts.v1",
+    "esi-universe.read_structures.v1",
+  ];
   const WALLET_SCOPES = [
     "esi-wallet.read_character_wallet.v1",
     "esi-wallet.read_corporation_wallets.v1",
@@ -90,7 +96,7 @@
 
   // mode "primary": the hub character (market permissions only).
   // mode "journal": add or refresh a character with wallet permissions too.
-  async function login(mode = "primary") {
+  async function login(mode = "primary", extra = {}) {
     if (!CFG.CLIENT_ID || CFG.CLIENT_ID.startsWith("PASTE")) {
       status("Add your EVE app's Client ID to config.js first (see README).", "err");
       return;
@@ -98,8 +104,8 @@
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
     const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-    sessionStorage.setItem("pkce", JSON.stringify({ verifier, state, mode }));
-    const scopes = mode === "journal" ? BASE_SCOPES.concat(WALLET_SCOPES) : BASE_SCOPES;
+    sessionStorage.setItem("pkce", JSON.stringify(Object.assign({ verifier, state, mode }, extra)));
+    const scopes = mode === "alerts" ? ALERT_SCOPES : mode === "journal" ? BASE_SCOPES.concat(WALLET_SCOPES) : BASE_SCOPES;
     const p = new URLSearchParams({
       response_type: "code",
       redirect_uri: CFG.CALLBACK_URL,
@@ -165,6 +171,7 @@
     try { saved = JSON.parse(sessionStorage.getItem("pkce") || "null"); } catch {}
     sessionStorage.removeItem("pkce");
     if (!saved || saved.state !== q.get("state")) throw new Error("Login check failed (state mismatch). Please log in again.");
+    if (saved.mode === "alerts") { await finishAlerts(code, saved); return null; }
     status("Finishing login…", "busy");
     const t = await tokenRequest({
       grant_type: "authorization_code",
@@ -848,6 +855,60 @@
     store.set("tab", which);
   }
 
+  // ---------- delivery alerts ----------
+  async function finishAlerts(code, saved) {
+    store.set("tab", "journal");
+    status("Turning on delivery alerts…", "busy");
+    const r = await fetch("/api/watch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, code_verifier: saved.verifier, client_id: CFG.CLIENT_ID, webhook: saved.webhook, corp: saved.corp === "on" }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (j.key) store.set("alerts", { char: j.char, key: j.key, name: j.name });
+    if (!r.ok || j.error) throw new Error(j.error || "Couldn't turn on alerts (" + r.status + ").");
+    status(`Delivery alerts are on for ${j.name}. Check your Discord channel for the test message.`, "ok");
+  }
+
+  async function alertsOn() {
+    const webhook = $("aWebhook").value.trim();
+    if (!/^https:\/\/(ptb\.|canary\.)?discord(app)?\.com\/api\/webhooks\//.test(webhook)) {
+      status("Paste your Discord webhook link first (Server Settings → Integrations → Webhooks → Copy Webhook URL).", "err");
+      return;
+    }
+    store.set("aWebhook", webhook);
+    await login("alerts", { webhook, corp: $("aCorp").value });
+  }
+
+  async function alertsOff() {
+    const a = store.get("alerts", null);
+    if (!a) return;
+    try { await fetch(`/api/watch?char=${a.char}&key=${encodeURIComponent(a.key)}`, { method: "DELETE" }); } catch {}
+    store.del("alerts");
+    renderAlerts();
+    status("Delivery alerts turned off.", "ok");
+  }
+
+  async function renderAlerts() {
+    const a = store.get("alerts", null);
+    $("aWebhook").value = store.get("aWebhook", "");
+    $("aOff").classList.toggle("hidden", !a);
+    $("aOn").textContent = a ? "Turn on again / change" : "Turn on alerts";
+    if (!a) { $("aState").textContent = "Alerts are off."; return; }
+    $("aState").textContent = `Alerts are on for ${a.name}. Checking status…`;
+    try {
+      const r = await fetch(`/api/watch?char=${a.char}&key=${encodeURIComponent(a.key)}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.status);
+      if (!j.on) { $("aState").textContent = "Alerts are off (the server doesn't have them any more). Turn them on again."; return; }
+      $("aState").textContent = `Alerts are on for ${j.name}${j.corp ? " (character + corp contracts)" : ""}. ` +
+        (j.lastCheck ? `Last check ${new Date(j.lastCheck).toLocaleString()}, watching ${j.tracking} courier contract${j.tracking === 1 ? "" : "s"}.` : "Waiting for the first check (runs every 10 minutes).") +
+        (j.lastError ? ` Last problem: ${j.lastError}` : "");
+    } catch (e) {
+      $("aState").textContent = `Alerts were turned on for ${a.name}, but I couldn't check their status (${e.message}).`;
+    }
+  }
+
   // ---------- trade journal ----------
   let jRows = [];
   let jSort = { key: "profit", dir: -1 };
@@ -1323,6 +1384,8 @@
     $("jAdd").addEventListener("click", () => login("journal"));
     $("jRun").addEventListener("click", runJournal);
     $("jClear").addEventListener("click", clearJournal);
+    $("aOn").addEventListener("click", () => alertsOn().catch((e) => status(e.message, "err")));
+    $("aOff").addEventListener("click", alertsOff);
     $("jFromNow").addEventListener("click", () => {
       const d = new Date();
       d.setSeconds(0, 0);
@@ -1363,11 +1426,13 @@
       status(e.message, "err");
       render();
       renderChars();
+      renderAlerts();
       setTab(store.get("tab", "doc"));
       return;
     }
     render();
     renderChars();
+    renderAlerts();
     setTab(store.get("tab", "doc"));
     if (!token) status("Log in with the character that can dock at your alliance hub.", "");
     else if (!hub) status(`Logged in as ${token.name}. Now find your hub structure.`, "ok");

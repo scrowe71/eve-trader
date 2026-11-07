@@ -111,6 +111,33 @@ Then, in the Trade journal tab:
 - A line comparing the broker fees you paid with what listing would have cost. The difference is mostly order updates.
 - Per item: average buy and sell price, profit, return, your sales per day compared with the hub's (from the doctrine tracker, if loaded), and how much is left to sell.
 
+## Delivery alerts (Discord)
+
+A small Cloudflare Worker (`watcher/`) checks your courier contracts every 10 minutes and posts to Discord when one is **picked up**, **delivered**, or **fails/is rejected**. It works with the site closed.
+
+### One-time setup (at your PC, in PowerShell)
+
+1. **EVE app permissions:** at https://developers.eveonline.com, add `esi-contracts.read_character_contracts.v1` and `esi-contracts.read_corporation_contracts.v1` to your EVE app.
+2. **Discord webhook:** in a private channel go to **Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL**.
+3. **Storage and worker:**
+   ```powershell
+   cd C:\path\to\eve-trader\watcher
+   npx wrangler kv namespace create WATCH
+   ```
+   Copy the `id` it prints into `watcher\wrangler.toml` (replace `PASTE_KV_NAMESPACE_ID_HERE`), then deploy:
+   ```powershell
+   npx wrangler deploy
+   ```
+4. **Let the site use the same storage:** in the Cloudflare dashboard, go to **Workers & Pages → eve-trader → Settings → Bindings → Add → KV namespace**. Set the variable name to `WATCH` and choose the namespace you just made. Save, then redeploy, or just push any change.
+5. **Turn it on:** go to the site's **Trade journal** tab → **Delivery alerts**, paste the webhook link, and click **Turn on alerts**. Log in with the character that issues the courier contracts (or any corp member, for corp contracts). A test message appears in Discord.
+
+### Notes
+
+- **Your first check only records the contracts you already have.** Alerts start with the next change.
+- **The alert login is separate from your other logins.** Its token is stored only in your Cloudflare KV, so the worker can check while the site is closed. Click **Turn off** to delete it.
+- **Optional:** set `ALLOWED_CHARACTERS` (comma-separated character IDs) on the Pages project to stop anyone else registering alerts on your site.
+- **Testing:** visit the worker's URL (`https://eve-trader-watcher.<your-subdomain>.workers.dev`) to run a check right away.
+
 ## Known limits
 
 - ESI caches structure markets for about 5 minutes, so scanning more often than that won't show anything new.
