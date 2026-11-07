@@ -133,6 +133,15 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Caldari Navy standing<input id="jCorp" type="number" step="0.01"></label>
           <label class="full">Hub broker fee % (from the in-game sell window)<input id="hubFee" type="number" step="0.01" min="0"></label>
         </div>
+        <h3>Order slots</h3>
+        <div class="fields">
+          <label>Trade<input id="trade" type="number" min="0" max="5"></label>
+          <label>Retail<input id="retail" type="number" min="0" max="5"></label>
+          <label>Wholesale<input id="wholesale" type="number" min="0" max="5"></label>
+          <label>Tycoon<input id="tycoon" type="number" min="0" max="5"></label>
+          <label class="full">Orders you already have open<input id="openOrders" type="number" min="0" step="1"></label>
+        </div>
+        <p class="hint" id="slotLine"></p>
         <h3>Hauling</h3>
         <div class="fields">
           <label>ISK per m³<input id="haulRate" type="number" step="50" min="0"></label>
@@ -201,6 +210,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Minimum return %<input id="dMinRoi" type="number" step="1"></label>
           <label>Max ISK per item<input id="dItemCap" type="number" step="10000000" min="0"></label>
           <label>Total budget<input id="dBudget" type="number" step="100000000" min="0"></label>
+          <label>Minimum profit per item (total)<input id="dMinProfit" type="number" step="500000" min="0"></label>
           <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
           <label>Show
             <select id="dShow"><option value="all">All items</option><option value="soldout">Sold out at hub only</option></select>
@@ -222,7 +232,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <div class="tile"><span class="k">Expected profit</span><span class="v" id="dProfit">–</span></div>
         </div>
         <p class="callout-line" id="dSoldOut"></p>
-        <p class="hint">Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget or cargo runs out. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar, so the sell price is your sold-out markup on the Jita cost. Profit assumes everything sells at today's hub price.</p>
+        <p class="hint">Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget, cargo or your free order slots run out. Lines making less than your minimum profit in total are left out. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar, so the sell price is your sold-out markup on the Jita cost. Profit assumes everything sells at today's hub price.</p>
         <div class="tablewrap">
           <table>
             <thead><tr id="dThead"></tr></thead>

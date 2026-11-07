@@ -23,7 +23,8 @@
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
     haulRate: 800, coll: 1, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
-    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all",
+    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000,
+    trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
   };
   const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
@@ -54,6 +55,9 @@
   const salesTax = () => 0.075 * (1 - 0.11 * Math.min(5, Math.max(0, settings.acc)));
   const jitaBroker = () => Math.max(0.01, 0.03 - 0.003 * settings.br - 0.0003 * settings.jFac - 0.0002 * settings.jCorp);
   const hubBroker = () => settings.hubFee / 100;
+  const lvl = (v) => Math.min(5, Math.max(0, Math.round(v || 0)));
+  const orderSlots = () => 5 + 4 * lvl(settings.trade) + 8 * lvl(settings.retail) + 16 * lvl(settings.wholesale) + 32 * lvl(settings.tycoon);
+  const freeSlots = () => Math.max(0, orderSlots() - Math.max(0, Math.round(settings.openOrders || 0)));
 
   // ---------- PKCE / SSO ----------
   function b64url(buf) {
@@ -492,7 +496,7 @@
       await volumes(items.map((d) => d.typeId));
 
       const tax = salesTax(), bfH = hubBroker(), bfJ = jitaBroker();
-      const priced = [], skipped = { noJita: 0, lowRoi: 0, budget: 0 };
+      const priced = [], skipped = { noJita: 0, lowRoi: 0, lowProfit: 0, slots: 0, budget: 0 };
       for (const d of items) {
         const j = jita[d.typeId];
         const jSell = parseFloat(j && j.sell && j.sell.min) || 0;
@@ -515,17 +519,21 @@
           ...d, cost, sell, est: hubSell === null, hubListed: h ? h.sellQty : 0, hubSellers: h ? h.sellOrders : 0,
           vol, unitSpend, profit, roi, qty: Math.min(d.need, capQty),
         });
+        if (priced[priced.length - 1].qty * profit < settings.dMinProfit) { priced.pop(); skipped.lowProfit++; }
       }
 
       // Fill best-first by total profit until budget / cargo runs out.
       priced.sort((a, b) => b.profit * b.qty - a.profit * a.qty);
       let budgetLeft = settings.dBudget > 0 ? settings.dBudget : Infinity;
       let cargoLeft = settings.dCargo > 0 ? settings.dCargo : Infinity;
+      const maxItems = freeSlots();
       docResults = [];
       for (const p of priced) {
+        if (docResults.length >= maxItems) { skipped.slots++; continue; }
         let q = Math.min(p.qty, Math.floor(budgetLeft / p.unitSpend));
         if (p.vol > 0) q = Math.min(q, Math.floor(cargoLeft / p.vol));
         if (q <= 0) { skipped.budget++; continue; }
+        if (q * p.profit < settings.dMinProfit) { skipped.lowProfit++; continue; }
         p.qty = q;
         p.totalSpend = q * p.unitSpend;
         p.totalM3 = q * p.vol;
@@ -542,6 +550,8 @@
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
+      if (skipped.lowProfit) bits.push(`${skipped.lowProfit} would make under ${isk(settings.dMinProfit)} in total`);
+      if (skipped.slots) bits.push(`${skipped.slots} more were cut because you have ${maxItems} free order slots`);
       if (skipped.budget) bits.push(`${skipped.budget} didn't fit the budget or cargo`);
       $("dSkipped").textContent = bits.length ? "Left out: " + bits.join(", ") + "." : "";
       $("docResults").classList.remove("hidden");
@@ -820,6 +830,7 @@
   function feeLine() {
     $("feeLine").textContent =
       `Sales tax ${(salesTax() * 100).toFixed(3)}% · Jita broker fee ${(jitaBroker() * 100).toFixed(2)}% · Hub broker fee ${settings.hubFee}%`;
+    $("slotLine").textContent = `${orderSlots()} order slots, ${freeSlots()} free. The Doctrine list picks at most ${freeSlots()} items.`;
   }
 
   // ---------- render ----------
