@@ -1865,7 +1865,7 @@
 
   // Profit for sales in [a, b): revenue - (Jita cost + hauling) - sales tax - broker fees charged in the range.
   function reportFor(a, b, ctx) {
-    const { tx, costOf, taxBySale, feeEntries, jitaOnly, tax, group } = ctx;
+    const { tx, costOf, taxBySale, feeEntries, jitaOnly, tax, group, bf } = ctx;
     const items = new Map(), buckets = new Map();
     const bucket = (k) => { let x = buckets.get(k); if (!x) { x = { key: k, revenue: 0, profit: 0, fees: 0 }; buckets.set(k, x); } return x; };
     let revenue = 0, cogs = 0, taxPaid = 0, units = 0, unknown = 0;
@@ -1884,18 +1884,16 @@
       it.units += t.quantity; it.revenue += rev; it.cogs += cg; it.tax += tx$;
       items.set(t.type_id, it);
       const bk = bucket(bucketKey(ms, group));
-      bk.revenue += rev; bk.profit += rev - cg - tx$;
+      bk.revenue += rev; bk.profit += rev - cg - tx$ - rev * bf;   // listing fee share for what sold
     }
     let broker = 0;
     for (const e of feeEntries) {
       const ms = Date.parse(e.date);
       if (ms < a || ms >= b) continue;
-      const f = -(e.amount || 0);
-      broker += f;
-      const bk = bucket(bucketKey(ms, group));
-      bk.fees += f; bk.profit -= f;
+      broker += -(e.amount || 0);
     }
-    return { revenue, cogs, taxPaid, broker, units, unknown, profit: revenue - cogs - taxPaid - broker, items, buckets };
+    const brokerSold = revenue * bf;   // listing fees on the units that sold
+    return { revenue, cogs, taxPaid, broker, brokerSold, units, unknown, profit: revenue - cogs - taxPaid - brokerSold, cash: revenue - cogs - taxPaid - broker, items, buckets };
   }
 
   async function loadChartJs() {
@@ -1925,7 +1923,7 @@
       const jr = jRaw.journal.filter((e) => (seenJ.has(e.id) ? false : (seenJ.add(e.id), true)));
       const taxBySale = new Map(jr.filter((e) => e.ref_type === "transaction_tax" && e.context_id).map((e) => [e.context_id, -(e.amount || 0)]));
       const feeEntries = jr.filter((e) => (e.amount || 0) < 0 && /broker|scc|surcharge/i.test(e.ref_type || "") && Date.parse(e.date) >= PROJECT_START);
-      const ctx = { tx, costOf, taxBySale, feeEntries, jitaOnly: settings.jSource === "jita", tax: salesTax(), group: settings.rGroup };
+      const ctx = { tx, costOf, taxBySale, feeEntries, jitaOnly: settings.jSource === "jita", tax: salesTax(), group: settings.rGroup, bf: hubBroker() };
       const cur = reportFor(a, b, ctx);
       const prev = reportFor(a - (b - a), a, ctx);
       const hauls = (jRaw.hauls || []).filter((h) => h.start_location_id === JITA_STATION && h.end_location_id === hub.id && h.status !== "deleted" && h.status !== "rejected" && Date.parse(h.date_issued) >= a && Date.parse(h.date_issued) < b);
@@ -1945,6 +1943,12 @@
       $("rUnits").textContent = intf(cur.units);
       $("rTax").textContent = isk(cur.taxPaid);
       $("rBroker").textContent = isk(cur.broker);
+      const prepaid = cur.broker - cur.brokerSold;
+      $("rBrokerNote").textContent = prepaid > 0
+        ? `${isk(cur.brokerSold)} on what sold; ${isk(prepaid)} paid upfront on listings still up (and any order updates)`
+        : `all on what sold`;
+      $("rCash").textContent = isk(cur.cash);
+      $("rCash").className = "v " + (cur.cash >= 0 ? "pos" : "neg");
       $("rCourier").textContent = isk(courier);
       $("rCourierNote").textContent = `${hauls.length} contract${hauls.length === 1 ? "" : "s"} issued in range (already in item cost as an estimate)`;
 

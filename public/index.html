@@ -368,15 +368,16 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <h2 id="hRRes">Profit report</h2>
         <p class="hint" id="rRangeLbl"></p>
         <div class="summary">
-          <div class="tile"><span class="k">Profit</span><span class="v" id="rProfit">–</span><span class="k" id="rProfitNote"></span></div>
+          <div class="tile"><span class="k">Profit on what sold</span><span class="v" id="rProfit">–</span><span class="k" id="rProfitNote"></span></div>
           <div class="tile"><span class="k">Revenue</span><span class="v" id="rRevenue">–</span></div>
           <div class="tile"><span class="k">Margin on sales</span><span class="v" id="rMargin">–</span></div>
           <div class="tile"><span class="k">Profit per day</span><span class="v" id="rPerDay">–</span></div>
           <div class="tile"><span class="k">Units sold</span><span class="v" id="rUnits">–</span></div>
           <div class="tile"><span class="k">Sales tax paid</span><span class="v" id="rTax">–</span></div>
-          <div class="tile"><span class="k">Broker fees paid</span><span class="v" id="rBroker">–</span></div>
+          <div class="tile"><span class="k">Broker fees paid</span><span class="v" id="rBroker">–</span><span class="k" id="rBrokerNote"></span></div>
           <div class="tile"><span class="k">Courier contracts</span><span class="v" id="rCourier">–</span><span class="k" id="rCourierNote"></span></div>
         </div>
+        <p class="hint">Profit counts the listing fee only on what sold. Listing fees are charged upfront for the whole order, so fees on stock that hasn't sold yet aren't a loss: they're counted as those items sell. Cash result (sales minus cost, tax and every fee actually paid in the range): <b id="rCash">–</b>.</p>
         <div class="chartbox"><canvas id="rCanvas" aria-label="Profit and revenue by period"></canvas></div>
         <p class="hint" id="rChartNote"></p>
         <div class="tablewrap">
