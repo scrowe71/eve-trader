@@ -1141,6 +1141,10 @@
     const show = opts.show !== false;
     $("jRun").disabled = true;
     try {
+      if (show && settings.jCorpWallet === "on") {
+        status("Checking which corp wallet division your orders use…", "busy");
+        showDivBanner(await detectDivision());
+      }
       const period = Math.max(1, settings.jPeriod) * 86400000;
       const from = Math.max(PROJECT_START, settings.jFrom ? Date.parse(settings.jFrom) || 0 : 0);   // never before project start
       const since = Math.max(Date.now() - period, from);
@@ -1482,6 +1486,50 @@
     tb.appendChild(frag);
   }
 
+  // ---------- corp wallet division auto-detect ----------
+  // Looks at which division your corp market orders (hub sells, Jita buys) actually use.
+  async function detectDivision() {
+    const cid = settings.jCorpChar && chars[settings.jCorpChar] ? settings.jCorpChar
+      : (Object.values(chars).find((c) => hasOrders(c)) || {}).charId;
+    if (!cid || !hasOrders(chars[cid])) return null;
+    try {
+      const corpId = (await esi(`/characters/${cid}/`)).data.corporation_id;
+      const ords = await allPages(`/corporations/${corpId}/orders/`, cid);
+      const count = {};
+      ords.forEach((o) => {
+        if (!o.wallet_division) return;
+        const relevant = (!o.is_buy_order && hub && o.location_id === hub.id) || (o.is_buy_order && o.location_id === JITA_STATION);
+        if (relevant) count[o.wallet_division] = (count[o.wallet_division] || 0) + 1;
+      });
+      const best = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+      return best ? { div: Number(best[0]), orders: best[1], all: count } : null;
+    } catch { return null; }
+  }
+
+  function showDivBanner(found) {
+    const box = $("divBanner");
+    const cur = Math.round(settings.jCorpDiv || 1);
+    if (!found || found.div === cur || settings.jCorpWallet !== "on") { box.classList.add("hidden"); return false; }
+    box.innerHTML = "";
+    const msg = document.createElement("span");
+    msg.textContent = `Your corp market orders use wallet division ${found.div} (${found.orders} order${found.orders === 1 ? "" : "s"}), but the journal is reading division ${cur}. Sales in division ${found.div} won't show until you switch.`;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "primary";
+    b.textContent = `Use division ${found.div}`;
+    b.addEventListener("click", () => {
+      settings.jCorpDiv = found.div;
+      $("jCorpDiv").value = found.div;
+      store.set("settings", settings);
+      markSettingsChanged();
+      box.classList.add("hidden");
+      status(`Now reading corp wallet division ${found.div}. Click "Load my trades" again. The cloud copy switches on its next hourly run.`, "ok");
+    });
+    box.append(msg, b);
+    box.classList.remove("hidden");
+    return true;
+  }
+
   // ---------- order check ----------
   let oRows = [];
 
@@ -1520,11 +1568,11 @@
       const { orders, notes, who } = await myOpenOrders();
       if (!who.length) throw new Error("Add a character on the Trade journal tab (Add a character) — it now also asks for order access. Characters added before need \"Allow wallet access\" again.");
       const sells = orders.filter((o) => !o.is_buy_order && o.location_id === hub.id);
-      const divs = [...new Set(sells.filter((o) => o.wallet_division).map((o) => o.wallet_division))];
-      const jDiv = Math.round(settings.jCorpDiv || 1);
-      if (divs.length && (divs.length > 1 || divs[0] !== jDiv)) {
-        notes.push(`Heads up: your hub sell orders pay into corp wallet division ${divs.join(" and ")}, but the Trade journal reads division ${jDiv}. ` +
-          `Set "Corp wallet division" on the Trade journal tab to ${divs[0]} or those sales won't show up there.`);
+      const dc = {};
+      sells.forEach((o) => { if (o.wallet_division) dc[o.wallet_division] = (dc[o.wallet_division] || 0) + 1; });
+      const top = Object.entries(dc).sort((a, b) => b[1] - a[1])[0];
+      if (top && showDivBanner({ div: Number(top[0]), orders: top[1] })) {
+        notes.push(`Your hub sell orders pay into corp wallet division ${top[0]}, not the one the Trade journal reads. Use the button on the Trade journal tab to switch.`);
       }
       if (!sells.length) { oRows = []; drawOrders(); status("No open sell orders at the hub." + (notes.length ? " " + notes.join(" ") : ""), "ok"); return; }
 

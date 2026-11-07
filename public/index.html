@@ -101,6 +101,7 @@ td.pay { color: var(--accent); font-weight: 500; }
 #sResults td.note { max-width: 320px; color: var(--muted); font-size: 12px; }
 .watched table { font-size: 12.5px; }
 .watched td.name, .watched th.name { text-align: left; font-family: var(--body); }
+.banner { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-radius: 4px; background: color-mix(in srgb, var(--warn) 14%, var(--bg)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); font-size: 14px; }
 ul.tight { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 #jResults th, #jResults td { padding: 6px 5px; }
 #jResults th.name, #jResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 260px; font-family: var(--body); }
@@ -346,6 +347,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
 
       <section class="panel hidden" id="jPanel" aria-labelledby="hJ">
         <h2 id="hJ">Trade journal</h2>
+        <div id="divBanner" class="banner hidden" role="alert"></div>
         <p class="hint">Reads your actual buys, sales, taxes and broker fees from the wallet and shows what each item really made. Add every character that buys or sells, with wallet access.</p>
         <div class="source">
           <h3>Characters</h3>
@@ -356,7 +358,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Corp wallet
             <select id="jCorpWallet"><option value="on">Include</option><option value="off">Don't include</option></select>
           </label>
-          <label>Corp wallet division (1 = Master)<input id="jCorpDiv" type="number" min="1" max="7" step="1"></label>
+          <label><b>Corp wallet division</b> your trading uses (1 = Master)<input id="jCorpDiv" type="number" min="1" max="7" step="1"></label>
           <label>Read corp wallet with
             <select id="jCorpChar"></select>
           </label>
