@@ -591,6 +591,7 @@
     { k: "name", label: "Item" },
     { k: "cls", label: "Type" },
     { k: "hubListed", label: "Hub listings" },
+    { k: "demand", label: "Sells / day", f: (v) => (v >= 100 ? intf(v) : v.toFixed(1)) },
     { k: "daysLeft", label: "Days left", f: (v) => (isFinite(v) ? v.toFixed(1) : "–") },
     { k: "need", label: "Short by", f: intf },
     { k: "cost", label: "Jita cost", f: isk },
@@ -666,6 +667,7 @@
           td.textContent = c.f(r[c.k]);
           if (c.k === "totalProfit") td.className = r.totalProfit >= 0 ? "pos" : "neg";
           if (c.k === "daysLeft" && r.daysLeft < 3) td.className = "neg";
+          if (c.k === "demand") td.title = `7-day avg ${r.a7.toFixed(1)} / day · 30-day avg ${r.a30.toFixed(1)} / day`;
         }
         row.appendChild(td);
       });
@@ -688,11 +690,11 @@
   }
 
   function downloadDocCsv() {
-    const head = ["type_id", "Item", "Type", "Hub units listed", "Hub sellers", "Days left", "Short by", "Jita cost", "Hub sell", "Hub price estimated", "Return", "Buy qty", "ISK", "m3", "Profit"];
+    const head = ["type_id", "Item", "Type", "Hub units listed", "Hub sellers", "Sells per day", "7D avg", "30D avg", "Days left", "Short by", "Jita cost", "Hub sell", "Hub price estimated", "Return", "Buy qty", "ISK", "m3", "Profit"];
     const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
     const lines = [head.join(",")];
     visibleDocRows().forEach((r) => {
-      lines.push([r.typeId, q(r.name), q(r.cls), r.hubListed, r.hubSellers, isFinite(r.daysLeft) ? r.daysLeft.toFixed(2) : "", r.need,
+      lines.push([r.typeId, q(r.name), q(r.cls), r.hubListed, r.hubSellers, r.demand.toFixed(2), r.a7, r.a30, isFinite(r.daysLeft) ? r.daysLeft.toFixed(2) : "", r.need,
         Math.round(r.cost), Math.round(r.sell), r.est ? "yes" : "no", r.roi.toFixed(4), r.qty,
         Math.round(r.totalSpend), r.totalM3.toFixed(2), Math.round(r.totalProfit)].join(","));
     });
