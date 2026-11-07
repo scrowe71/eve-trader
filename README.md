@@ -109,6 +109,16 @@ When a haul lands, open the **Sell prices** tab and click **Price my stock**. It
 
 Prices follow EVE's 4-significant-figure rule. If you've already listed some items, the hub's lowest may be your own order.
 
+## Liquidate
+
+Turn items you didn't buy in Jita into ISK quickly. Copy them from your EVE hangars (list view, Ctrl+C) into the **Liquidate** tab and click **Plan the sale**. For each item:
+
+1. **List at the Keepstar** only as many as the hub sells within your time limit (default 7 days), one tick under the lowest seller. This only happens if it beats selling instantly.
+2. **Sell the rest instantly** into whichever pays more after fees: **buy orders at the Keepstar**, or **Jita 4-4 buy orders** after a courier. Hauling uses your hauling settings.
+3. Anything the buyers can't absorb is flagged as left over.
+
+The totals show the ISK from each route and the m³ to haul to Jita.
+
 ## Order check
 
 Check your orders as often as you like. **Order check** tells you which sell orders at the Keepstar are worth updating:

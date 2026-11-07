@@ -92,7 +92,11 @@ td:first-child { font-family: var(--body); white-space: normal; min-width: 150px
 .source { display: grid; gap: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 .warnc { color: var(--warn); }
 td.pay { color: var(--accent); font-weight: 500; }
-#docResults table, #jResults table, #sResults table, #oResults table { font-size: 12.5px; }
+#docResults table, #jResults table, #sResults table, #oResults table, #lResults table { font-size: 12.5px; }
+#lResults th, #lResults td { padding: 6px 5px; }
+#lResults th.name, #lResults td.name { text-align: left; white-space: normal; min-width: 140px; max-width: 230px; font-family: var(--body); }
+#lResults td.note { max-width: 380px; color: var(--muted); font-size: 12px; }
+textarea { font: 13px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px; width: 100%; resize: vertical; }
 #oResults th, #oResults td { padding: 6px 5px; }
 #oResults th.name, #oResults td.name { text-align: left; white-space: normal; min-width: 140px; max-width: 230px; font-family: var(--body); }
 #oResults td.note { max-width: 340px; color: var(--muted); font-size: 12px; }
@@ -219,6 +223,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <button type="button" id="tabScan" aria-pressed="false">Hub scan</button>
         <button type="button" id="tabSell" aria-pressed="false">Sell prices</button>
         <button type="button" id="tabOrders" aria-pressed="false">Order check</button>
+        <button type="button" id="tabLiq" aria-pressed="false">Liquidate</button>
         <button type="button" id="tabJournal" aria-pressed="false">Trade journal</button>
       </div>
 
@@ -321,6 +326,34 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <tbody id="sTbody"></tbody>
           </table>
         </div>
+      </section>
+
+      <section class="panel hidden" id="lPanel" aria-labelledby="hL">
+        <h2 id="hL">Liquidate</h2>
+        <p class="hint">Turn items into ISK quickly. In your EVE hangar(s), select the items (list view), press Ctrl+C and paste below. Several hangars are fine; duplicates are added up. For each item the planner lists at the Keepstar only what the hub will buy within your time limit, and sells the rest instantly into whichever pays more: buy orders at the Keepstar, or Jita buy orders after a courier (hauling counted).</p>
+        <label class="full">Items (pasted from EVE)<textarea id="lPaste" rows="8" placeholder="Large Shield Extender II&#9;12&#9;Shield Extender&#10;Nanite Repair Paste&#9;5,000&#9;…"></textarea></label>
+        <div class="fields">
+          <label>Only list at the hub what sells within (days)<input id="lMaxDays" type="number" min="0.5" step="0.5"></label>
+        </div>
+        <div class="row"><button type="button" class="primary" id="lRun">Plan the sale</button></div>
+      </section>
+
+      <section class="panel hidden" id="lResults" aria-labelledby="hLRes">
+        <h2 id="hLRes">Sale plan</h2>
+        <div class="summary isk5">
+          <div class="tile"><span class="k">Total after fees</span><span class="v" id="lTotal">–</span></div>
+          <div class="tile"><span class="k">From listing at the hub</span><span class="v" id="lHubList">–</span></div>
+          <div class="tile"><span class="k">Instant: hub buy orders</span><span class="v" id="lHubDump">–</span></div>
+          <div class="tile"><span class="k">Jita buy orders (after haul)</span><span class="v" id="lJita">–</span><span class="k" id="lJitaNote"></span></div>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th class="name">Item</th><th>Qty</th><th>Hub sold / day</th><th>Hub lowest (sellers)</th><th>List at hub</th><th>Sell instantly</th><th>Net ISK</th><th class="name">Plan</th></tr></thead>
+            <tbody id="lTbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="lUnknown"></p>
+        <p class="hint">Instant sales pay sales tax only; listing also pays the hub broker fee. Buy orders with a minimum volume, or in other stations, aren't counted, so the real instant price can be a little different. Jita hauling uses your hauling settings (same rate as Jita → C-N4OD) with the item's value as collateral; check your hauler's price for the trip to Jita.</p>
       </section>
 
       <section class="panel hidden" id="oPanel" aria-labelledby="hO">

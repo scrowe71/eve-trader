@@ -49,7 +49,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1,
+    oAheadDays: 1, oMinGap: 1, lMaxDays: 7,
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -882,12 +882,16 @@
   }
 
   function setTab(which) {
-    if (!["doc", "scan", "journal", "sell", "orders"].includes(which)) which = "doc";
+    if (!["doc", "scan", "journal", "sell", "orders", "liq"].includes(which)) which = "doc";
     const doc = which === "doc", scanT = which === "scan", jr = which === "journal", sl = which === "sell";
     $("tabDoc").setAttribute("aria-pressed", String(doc));
     $("tabScan").setAttribute("aria-pressed", String(scanT));
     $("tabJournal").setAttribute("aria-pressed", String(jr));
     $("tabSell").setAttribute("aria-pressed", String(sl));
+    const lq = which === "liq";
+    $("tabLiq").setAttribute("aria-pressed", String(lq));
+    $("lPanel").classList.toggle("hidden", !lq);
+    $("lResults").classList.toggle("hidden", !lq || !lRows.length);
     const oc = which === "orders";
     $("tabOrders").setAttribute("aria-pressed", String(oc));
     $("oPanel").classList.toggle("hidden", !oc);
@@ -1628,6 +1632,183 @@
     return true;
   }
 
+  // ---------- liquidation planner ----------
+  let lRows = [];
+
+  // EVE inventory copy (Ctrl+C) is tab-separated: Name, Quantity, Group, ... Also accepts "Name 123" or "Name x 123".
+  function parseInventory(text) {
+    const out = new Map();
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      let name, qty;
+      const cols = line.split("\t");
+      if (cols.length >= 2) { name = cols[0].trim(); qty = cols[1].replace(/[^0-9]/g, ""); }
+      else {
+        const m = line.match(/^(.*?)(?:\s+x)?\s+([0-9][0-9,.\s]*)$/i);
+        if (m) { name = m[1].trim(); qty = m[2].replace(/[^0-9]/g, ""); } else { name = line; qty = "1"; }
+      }
+      const q = parseInt(qty || "1", 10) || 1;
+      if (name) out.set(name, (out.get(name) || 0) + q);
+    }
+    return out;
+  }
+
+  async function resolveNames(list) {
+    const ids = new Map();
+    for (const c of chunk(list, 400)) {
+      const r = await esi(`/universe/ids/`, { method: "POST", body: c });
+      (r.data.inventory_types || []).forEach((t) => { ids.set(t.name.toLowerCase(), t.id); nameCache[t.id] = t.name; });
+    }
+    return ids;
+  }
+
+  // Walk buy orders (highest first) for qty units; returns { qty, isk }.
+  function walkBuys(orders, qty) {
+    let left = qty, isk = 0, sold = 0;
+    for (const o of [...orders].sort((a, b) => b.price - a.price)) {
+      if (left <= 0) break;
+      const take = Math.min(left, o.volume_remain);
+      isk += take * o.price; sold += take; left -= take;
+    }
+    return { qty: sold, isk };
+  }
+
+  async function runLiquidate() {
+    if (!hub) { status("Pick your hub first.", "err"); return; }
+    if (!token) { status("Log in first (the hub market needs your login).", "err"); return; }
+    const pasted = parseInventory($("lPaste").value);
+    try { localStorage.setItem("liqPaste", $("lPaste").value); } catch {}
+    if (!pasted.size) { status("Paste your items first: select them in your EVE hangar, Ctrl+C, then paste here.", "err"); return; }
+    $("lRun").disabled = true;
+    try {
+      status("Looking up item names…", "busy");
+      const ids = await resolveNames([...pasted.keys()]);
+      const unknown = [...pasted.keys()].filter((n) => !ids.has(n.toLowerCase()));
+      const items = [...pasted.entries()].filter(([n]) => ids.has(n.toLowerCase())).map(([n, q]) => ({ typeId: ids.get(n.toLowerCase()), name: nameCache[ids.get(n.toLowerCase())] || n, qty: q }));
+      // merge same type typed twice with different casing
+      const byId = new Map();
+      items.forEach((i) => { const e = byId.get(i.typeId); if (e) e.qty += i.qty; else byId.set(i.typeId, { ...i }); });
+      const list = [...byId.values()];
+
+      status("Downloading hub orders…", "busy");
+      const book = await hubOrders(hub.id);
+      await volumes(list.map((i) => i.typeId));
+      const tracker = new Map((doctrine || []).map((d) => [d.typeId, d]));
+      const needHist = list.map((i) => i.typeId).filter((t) => !tracker.get(t));
+      if (needHist.length) await dailyVolumes(needHist, hub.regionId);
+
+      const tax = salesTax(), bf = hubBroker();
+      const k = 1 - Math.min(100, Math.max(0, settings.haulDisc || 0)) / 100;
+      const maxDays = Math.max(0.5, settings.lMaxDays || 7);
+      let done = 0;
+      lRows = await pool(list, 6, async (it) => {
+        const t = it.typeId, q = it.qty, vol = volCache[t] || 0;
+        const sells = book.filter((b) => b.type_id === t && !b.is_buy_order);
+        const hubBuys = book.filter((b) => b.type_id === t && b.is_buy_order);
+        let jitaBuys = [];
+        try {
+          jitaBuys = (await esi(`/markets/${JITA_REGION}/orders/?order_type=buy&type_id=${t}`)).data.filter((o) => o.location_id === JITA_STATION);
+        } catch {}
+        status(`Planning: ${++done} of ${list.length}…`, "busy");
+        const d = tracker.get(t);
+        const perDay = d ? (d.a30 || d.a7) : (histCache.data[t] || 0);
+        const lowest = sells.length ? Math.min(...sells.map((b) => b.price)) : null;
+        const bestJitaBuy = jitaBuys.length ? Math.max(...jitaBuys.map((o) => o.price)) : 0;
+
+        // 1) List at the hub what will sell within maxDays (behind the cheaper units already listed).
+        let listPrice = null, listQty = 0, aheadUnits = 0;
+        if (lowest !== null) {
+          listPrice = floorTick(lowest - tick(lowest) * 0.5);
+          aheadUnits = sells.filter((b) => b.price <= listPrice).reduce((a, b) => a + b.volume_remain, 0);
+        } else if (bestJitaBuy) {
+          listPrice = floorTick(bestJitaBuy * 1.15);   // nobody selling at the hub: a bit over Jita
+        }
+        if (listPrice && perDay > 0) listQty = Math.max(0, Math.min(q, Math.floor(perDay * maxDays - aheadUnits)));
+        const listNetUnit = listPrice ? listPrice * (1 - tax - bf) : 0;
+        // Only list if it beats dumping instantly.
+        const hubDumpUnit = hubBuys.length ? Math.max(...hubBuys.map((o) => o.price)) * (1 - tax) : 0;
+        const jitaDumpUnit = bestJitaBuy ? bestJitaBuy * (1 - tax) - k * (settings.haulRate * vol + (settings.coll / 100) * bestJitaBuy) : 0;
+        if (listNetUnit <= Math.max(hubDumpUnit, jitaDumpUnit)) listQty = 0;
+
+        // 2) Dump the rest: hub buy orders (instant) vs Jita buy orders (after a courier).
+        const rest = q - listQty;
+        const hubW = walkBuys(hubBuys, rest);
+        const jitaW = walkBuys(jitaBuys, rest);
+        const hubNet = hubW.isk * (1 - tax);
+        const jitaHaul = k * (settings.haulRate * vol * jitaW.qty + (settings.coll / 100) * jitaW.isk);
+        const jitaNet = jitaW.isk * (1 - tax) - jitaHaul;
+        // compare per unit sold (a route may not absorb everything)
+        const useJita = jitaW.qty > 0 && (hubW.qty === 0 || jitaNet / jitaW.qty > hubNet / hubW.qty * 1.0);
+        const dump = useJita
+          ? { route: "Jita buy orders", qty: jitaW.qty, net: jitaNet, avg: jitaW.qty ? jitaW.isk / jitaW.qty : 0, haul: jitaHaul, m3: vol * jitaW.qty }
+          : { route: "Hub buy orders", qty: hubW.qty, net: hubNet, avg: hubW.qty ? hubW.isk / hubW.qty : 0, haul: 0, m3: 0 };
+        const unsold = Math.max(0, rest - dump.qty);
+        const listNet = listQty * listNetUnit;
+        const days = listQty && perDay > 0 ? (aheadUnits + listQty) / perDay : 0;
+        let plan = [];
+        if (listQty) plan.push(`List ${intf(listQty)} at the hub @ ${isk(listPrice)} (~${days.toFixed(1)} days)`);
+        if (dump.qty) plan.push(`Sell ${intf(dump.qty)} into ${dump.route} @ ~${isk(dump.avg)} avg${dump.route.startsWith("Jita") ? " (haul to Jita first)" : " (instant)"}`);
+        if (unsold) plan.push(`${intf(unsold)} left over: not enough buyers. List at the hub @ ${listPrice ? isk(listPrice) : "your price"} and be patient, or try another market.`);
+        return {
+          typeId: t, name: it.name, qty: q, perDay, lowest, sellers: sells.length,
+          listQty, listPrice, listNet, days, dump, unsold,
+          net: listNet + dump.net, plan: plan.join(" · "),
+        };
+      });
+      lRows.sort((a, b) => b.net - a.net);
+      drawLiquidate(unknown);
+      $("lResults").classList.remove("hidden");
+      const tot = lRows.reduce((a, r) => a + r.net, 0);
+      status(`Plan ready for ${lRows.length} items: about ${isk(tot)} after fees, tax and hauling.` + (unknown.length ? ` ${unknown.length} name(s) not recognised.` : ""), "ok");
+    } catch (e) {
+      scanError(e);
+    } finally {
+      $("lRun").disabled = false;
+    }
+  }
+
+  function drawLiquidate(unknown = []) {
+    const sum = (f) => lRows.reduce((a, r) => a + f(r), 0);
+    $("lTotal").textContent = isk(sum((r) => r.net));
+    $("lHubList").textContent = isk(sum((r) => r.listNet));
+    $("lHubDump").textContent = isk(sum((r) => (r.dump.route.startsWith("Hub") ? r.dump.net : 0)));
+    $("lJita").textContent = isk(sum((r) => (r.dump.route.startsWith("Jita") ? r.dump.net : 0)));
+    const m3 = sum((r) => r.dump.m3 || 0);
+    $("lJitaNote").textContent = m3 ? `${intf(m3)} m³ to haul to Jita (express fee not included)` : "nothing to haul";
+    const tb = $("lTbody");
+    tb.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    lRows.forEach((r) => {
+      const tr = document.createElement("tr");
+      const add = (v, cls) => { const td = document.createElement("td"); if (cls) td.className = cls; td.textContent = v; tr.appendChild(td); return td; };
+      add(r.name, "name");
+      add(intf(r.qty));
+      add(r.perDay ? (r.perDay >= 100 ? intf(r.perDay) : r.perDay.toFixed(1)) : "–");
+      add(r.lowest === null ? "none" : `${isk(r.lowest)} (${r.sellers})`);
+      const lp = document.createElement("td");
+      lp.className = "pay";
+      if (r.listQty && r.listPrice) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "copy";
+        b.textContent = `${intf(r.listQty)} @ ${Math.round(r.listPrice).toLocaleString("en-US")}`;
+        b.title = "Copy the list price";
+        b.addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(String(Math.round(r.listPrice))); b.textContent = "Copied"; } catch { b.textContent = "Can't copy"; }
+          setTimeout(() => (b.textContent = `${intf(r.listQty)} @ ${Math.round(r.listPrice).toLocaleString("en-US")}`), 1200);
+        });
+        lp.appendChild(b);
+      } else lp.textContent = "–";
+      tr.appendChild(lp);
+      add(r.dump.qty ? `${intf(r.dump.qty)} → ${r.dump.route.startsWith("Jita") ? "Jita" : "hub"} buys` : "–");
+      const n = add(isk(r.net)); n.className = "pos";
+      add(r.plan, "name note");
+      frag.appendChild(tr);
+    });
+    tb.appendChild(frag);
+    $("lUnknown").textContent = unknown.length ? "Not recognised (check spelling or paste from the game): " + unknown.join(", ") : "";
+  }
+
   // ---------- order check ----------
   let oRows = [];
 
@@ -2024,6 +2205,9 @@
     $("tabJournal").addEventListener("click", () => setTab("journal"));
     $("tabSell").addEventListener("click", () => setTab("sell"));
     $("tabOrders").addEventListener("click", () => setTab("orders"));
+    $("tabLiq").addEventListener("click", () => setTab("liq"));
+    $("lRun").addEventListener("click", runLiquidate);
+    try { $("lPaste").value = localStorage.getItem("liqPaste") || ""; } catch {}
     $("oRun").addEventListener("click", runOrders);
     $("sRun").addEventListener("click", runSell);
     $("jAdd").addEventListener("click", () => login("journal"));
