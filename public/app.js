@@ -1605,7 +1605,7 @@
       add(r.name, "name");
       const vd = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = "chip " + (r.verdict === "Update" ? "warn" : r.verdict === "Hold" ? "bad" : r.verdict === "Wait" ? "warn" : "good");
+      chip.className = "chip " + (r.verdict === "Update" ? "warn" : r.verdict === "Hold" ? "bad" : r.verdict === "Wait" ? "orange" : "good");
       chip.textContent = r.verdict;
       vd.appendChild(chip);
       tr.appendChild(vd);
