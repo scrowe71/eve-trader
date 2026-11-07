@@ -33,10 +33,15 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    jPeriod: 14, jWhere: "hub", jCorp: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
+    jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorp", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
+  // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
+  if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
+    if (settings.jCorp === "on" || settings.jCorp === "off") settings.jCorpWallet = settings.jCorp;
+    settings.jCorp = 0;
+  }
   let token = store.get("token", null);                 // the hub (primary) character
   const chars = store.get("chars", {});                 // every logged-in character, by id
   if (token && !chars[token.charId]) { chars[token.charId] = token; store.set("chars", chars); }
@@ -937,14 +942,14 @@
       const since = Math.max(Date.now() - period, from);
       const txs = [], journal = [];
       const who = Object.values(chars).filter((c) => hasWallet(c) && c.include !== false);
-      if (settings.jCorp === "on" && !settings.jCorpChar) throw new Error("Pick which character reads the corp wallet (it needs the Accountant or Junior Accountant role).");
+      if (settings.jCorpWallet === "on" && !settings.jCorpChar) throw new Error("Pick which character reads the corp wallet (it needs the Accountant or Junior Accountant role).");
       for (const c of who) {
         status(`Reading ${c.name}'s wallet…`, "busy");
         txs.push(...(await transactions(`/characters/${c.charId}/wallet/transactions/`, c.charId)));
         journal.push(...(await allPages(`/characters/${c.charId}/wallet/journal/`, c.charId)));
       }
       let corpNote = "";
-      if (settings.jCorp === "on" && settings.jCorpChar && chars[settings.jCorpChar]) {
+      if (settings.jCorpWallet === "on" && settings.jCorpChar && chars[settings.jCorpChar]) {
         const cid = settings.jCorpChar, div = Math.min(7, Math.max(1, Math.round(settings.jCorpDiv || 1)));
         status(`Reading corp wallet division ${div}…`, "busy");
         try {
@@ -979,7 +984,10 @@
         } else {
           if (onlyHub && t.location_id !== hub.id) continue;
           r.allSold += t.quantity;
-          if (Date.parse(t.date) >= since) { r.soldQty += t.quantity; r.revenue += t.quantity * t.unit_price; }
+          if (Date.parse(t.date) >= since) {
+            r.soldQty += t.quantity; r.revenue += t.quantity * t.unit_price;
+            (r.saleIds || (r.saleIds = [])).push(t.transaction_id);
+          }
         }
       }
 
@@ -1010,13 +1018,25 @@
       jRows = rows.filter((r) => (r.soldQty > 0 || r.left > 0) && (!jitaOnly || r.buyQty > 0));
 
       // Fees actually charged in the period (wallet journal).
-      const inP = journal.filter((e) => Date.parse(e.date) >= since);
-      const sumRef = (ref) => -inP.filter((e) => e.ref_type === ref).reduce((a, e) => a + (e.amount || 0), 0);
-      const taxPaid = sumRef("transaction_tax");
-      const brokerPaid = sumRef("brokers_fee");
+      const seenJ = new Set();
+      const inP = journal.filter((e) => Date.parse(e.date) >= since && (seenJ.has(e.id) ? false : (seenJ.add(e.id), true)));
+      const neg = (list) => -list.reduce((a, e) => a + (e.amount || 0), 0);
+      const walletTax = neg(inP.filter((e) => e.ref_type === "transaction_tax"));
+      const walletBroker = neg(inP.filter((e) => e.ref_type === "brokers_fee"));
 
       const sold = jRows.filter((r) => r.soldQty > 0);
       const revenue = sold.reduce((a, r) => a + r.revenue, 0);
+
+      // Sales tax: match each tax entry to the sale it was charged on, so only the items shown count.
+      const shownSales = new Set(sold.flatMap((r) => r.saleIds || []));
+      const taxEntries = inP.filter((e) => e.ref_type === "transaction_tax");
+      const linkable = taxEntries.some((e) => e.context_id_type === "market_transaction_id");
+      const taxPaid = jitaOnly
+        ? (linkable ? neg(taxEntries.filter((e) => shownSales.has(e.context_id))) : revenue * tax)
+        : walletTax;
+      // Broker fees are charged per order, not per sale, so they can't be tied to items reliably.
+      // Jita-only view: estimate listing fees for what sold. Everything view: what the wallet was charged.
+      const brokerPaid = jitaOnly ? revenue * bfH : walletBroker;
       const cogs = sold.reduce((a, r) => a + (r.cogs || 0), 0);
       const haul = sold.reduce((a, r) => a + r.soldQty * r.haulUnit, 0);
       const placeEst = revenue * bfH;
@@ -1029,11 +1049,15 @@
       $("jNet").textContent = isk(net);
       $("jNet").className = "v " + (net >= 0 ? "pos" : "neg");
       $("jLeft").textContent = isk(jRows.reduce((a, r) => a + r.leftIsk, 0));
-      const extra = brokerPaid - placeEst;
-      $("jFeeNote").textContent = brokerPaid > 0
-        ? `You paid ${isk(brokerPaid)} in broker fees over ${days} days. Listing the units you sold would cost about ${isk(placeEst)}; ` +
-          `the other ${isk(Math.max(0, extra))} went on listings that haven't sold yet and on order updates${extra > placeEst ? " — that's more than the listings themselves, so order updates are costing you real money." : "."}`
-        : "No broker fees in this period.";
+      $("jTaxK").textContent = jitaOnly && !linkable ? "Sales tax (est.)" : "Sales tax paid";
+      $("jBrokerK").textContent = jitaOnly ? "Broker fees (est.)" : "Broker fees paid";
+      const extra = walletBroker - placeEst;
+      $("jFeeNote").textContent = walletBroker > 0
+        ? `Across everything in these wallets, you were charged ${isk(walletBroker)} in broker fees and ${isk(walletTax)} in sales tax since ${new Date(since).toLocaleString()}. ` +
+          `Listing the import units you sold would cost about ${isk(placeEst)} in broker fees; the other ${isk(Math.max(0, extra))} went on listings that haven't sold yet, order updates${jitaOnly ? " and any other orders in these wallets" : ""}.`
+        : (walletTax > 0
+          ? `No broker fees since ${new Date(since).toLocaleString()}. The wallets were charged ${isk(walletTax)} in sales tax in total${jitaOnly ? "; only the part on the items below counts in Net profit" : ""}.`
+          : "No broker fees or sales tax in this period.");
       const missing = sold.filter((r) => r.avgBuy === null).length;
       $("jNote").textContent =
         (missing ? `${missing} item${missing === 1 ? " has" : "s have"} sales but no purchase in the wallets I read, so their profit is blank (bought with a character or corp division you didn't include, or more than 90 days ago). ` : "") +

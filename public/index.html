@@ -287,7 +287,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         </div>
         <div class="fields four">
           <label>Corp wallet
-            <select id="jCorp"><option value="on">Include</option><option value="off">Don't include</option></select>
+            <select id="jCorpWallet"><option value="on">Include</option><option value="off">Don't include</option></select>
           </label>
           <label>Corp wallet division (1 = Master)<input id="jCorpDiv" type="number" min="1" max="7" step="1"></label>
           <label>Read corp wallet with
@@ -320,13 +320,13 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <div class="tile"><span class="k">Sales revenue</span><span class="v" id="jRev">–</span></div>
           <div class="tile"><span class="k">Cost of what sold (Jita)</span><span class="v" id="jCogs">–</span></div>
           <div class="tile"><span class="k">Hauling (est.)</span><span class="v" id="jHaul">–</span></div>
-          <div class="tile"><span class="k">Sales tax paid</span><span class="v" id="jTax">–</span></div>
-          <div class="tile"><span class="k">Broker fees paid</span><span class="v" id="jBroker">–</span></div>
+          <div class="tile"><span class="k" id="jTaxK">Sales tax paid</span><span class="v" id="jTax">–</span></div>
+          <div class="tile"><span class="k" id="jBrokerK">Broker fees paid</span><span class="v" id="jBroker">–</span></div>
           <div class="tile"><span class="k">Net profit</span><span class="v" id="jNet">–</span></div>
           <div class="tile"><span class="k">Unsold stock (at cost)</span><span class="v" id="jLeft">–</span></div>
         </div>
         <p class="callout-line" id="jFeeNote"></p>
-        <p class="hint">Per-item profit uses your average Jita buy price (up to 90 days of purchases), estimated hauling, and the sales tax and hub broker fee rates from the left panel. The tiles above use the taxes and broker fees actually charged in your wallets. "You sold / day" is your pace; "Hub sold / day" is the doctrine tracker's, if loaded. Hover "Left" to see how long the rest will take to sell.</p>
+        <p class="hint">Per-item profit uses your average Jita buy price (up to 90 days of purchases), estimated hauling, and the sales tax and hub broker fee rates from the left panel. With "Only items bought in Jita 4-4", the tiles count sales tax only on those items (matched to each sale) and estimate broker fees from your hub fee rate, because broker fees are charged per order and can't be tied to an item; the line above shows everything the wallets were charged. With "Everything traded", the tiles use the wallets' actual totals. "You sold / day" is your pace; "Hub sold / day" is the doctrine tracker's, if loaded. Hover "Left" to see how long the rest will take to sell.</p>
         <div class="tablewrap">
           <table>
             <thead><tr id="jThead"></tr></thead>
