@@ -25,7 +25,7 @@
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
     haulRate: 800, coll: 1, haulDisc: 0, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
-    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout",
+    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
   };
   const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority"]);
@@ -560,12 +560,16 @@
         if (qty <= 0) { skipped.thin++; return; }
 
         const cost = itemCost / qty;                               // average price paid per unit
+        // Highest average unit price that still clears the minimum return.
+        const feeMult = settings.buyHow === "order" ? 1 + bfJ : 1;
+        const maxAvg = (net / (1 + minRoi) - fixedHaul) / (feeMult + collRate);
+        const payMax = Math.min(cost * (1 + settings.dTol / 100), maxAvg);
         const unitSpend = cost + fixedHaul + collRate * cost;
         const profit = net - unitSpend;
         const roi = profit / unitSpend;
         if (qty * profit < settings.dMinProfit) { skipped.lowProfit++; return; }
         priced.push({
-          ...d, cost, best, worst, sell, est: hubSell === null,
+          ...d, cost, best, worst, sell, est: hubSell === null, maxAvg, payMax,
           hubListed: h ? h.sellQty : 0, hubSellers: h ? h.sellOrders : 0,
           vol, unitSpend, profit, roi, qty, short: qty < d.need,
         });
@@ -627,6 +631,7 @@
     $("dItems").textContent = intf(rows.length);
     const jitaTotal = rows.reduce((t, r) => t + r.qty * r.cost, 0);
     $("dJita").textContent = isk(jitaTotal);
+    $("dMaxJita").textContent = isk(rows.reduce((t, r) => t + r.qty * r.payMax, 0));
     $("dHaul").textContent = isk(sum("totalSpend") - jitaTotal);
     $("dSpend").textContent = isk(sum("totalSpend"));
     $("dM3").textContent = intf(sum("totalM3")) + " m³";
@@ -646,6 +651,7 @@
     { k: "daysLeft", label: "Days left", f: (v) => (isFinite(v) ? v.toFixed(1) : "–") },
     { k: "need", label: "Short by", f: intf },
     { k: "cost", label: "Jita avg cost", f: isk },
+    { k: "payMax", label: "Pay at most", f: isk },
     { k: "sell", label: "Hub sell", f: isk },
     { k: "roi", label: "Return", f: pct },
     { k: "qty", label: "Buy", f: intf },
@@ -718,6 +724,12 @@
           td.textContent = c.f(r[c.k]);
           if (c.k === "totalProfit") td.className = r.totalProfit >= 0 ? "pos" : "neg";
           if (c.k === "daysLeft" && r.daysLeft < 3) td.className = "neg";
+          if (c.k === "payMax") {
+            td.className = "pay";
+            td.title = r.payMax < r.cost * (1 + settings.dTol / 100) - 0.5
+              ? `Capped by your ${settings.dMinRoi}% minimum return. Expected ${isk(r.cost)}; above ${isk(r.payMax)} each, this item isn't worth it.`
+              : `Expected ${isk(r.cost)} + ${settings.dTol}% allowance. Your ${settings.dMinRoi}% return still holds up to ${isk(r.maxAvg)} each.`;
+          }
           if (c.k === "cost") td.title = `Average over the orders you'd buy. Cheapest ${isk(r.best)}, most expensive ${isk(r.worst)}.`;
           if (c.k === "qty" && r.short) { td.title = `Short by ${intf(r.need)}, but only ${intf(r.qty)} are cheap enough in Jita (or your per-item cap stopped it).`; td.className = "warnc"; }
           if (c.k === "demand") td.title = `7-day avg ${r.a7.toFixed(1)} / day · 30-day avg ${r.a30.toFixed(1)} / day`;
@@ -743,12 +755,12 @@
   }
 
   function downloadDocCsv() {
-    const head = ["type_id", "Item", "Type", "Hub units listed", "Hub sellers", "Sells per day", "7D avg", "30D avg", "Days left", "Short by", "Jita cost", "Hub sell", "Hub price estimated", "Return", "Buy qty", "ISK", "m3", "Profit"];
+    const head = ["type_id", "Item", "Type", "Hub units listed", "Hub sellers", "Sells per day", "7D avg", "30D avg", "Days left", "Short by", "Jita avg cost", "Pay at most", "Hub sell", "Hub price estimated", "Return", "Buy qty", "ISK", "m3", "Profit"];
     const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
     const lines = [head.join(",")];
     visibleDocRows().forEach((r) => {
       lines.push([r.typeId, q(r.name), q(r.cls), r.hubListed, r.hubSellers, r.demand.toFixed(2), r.a7, r.a30, isFinite(r.daysLeft) ? r.daysLeft.toFixed(2) : "", r.need,
-        Math.round(r.cost), Math.round(r.sell), r.est ? "yes" : "no", r.roi.toFixed(4), r.qty,
+        Math.round(r.cost), Math.round(r.payMax), Math.round(r.sell), r.est ? "yes" : "no", r.roi.toFixed(4), r.qty,
         Math.round(r.totalSpend), r.totalM3.toFixed(2), Math.round(r.totalProfit)].join(","));
     });
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
