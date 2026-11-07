@@ -6,6 +6,8 @@ export const ALERT_SCOPES = [
   "esi-contracts.read_character_contracts.v1",
   "esi-contracts.read_corporation_contracts.v1",
   "esi-universe.read_structures.v1",
+  "esi-wallet.read_character_wallet.v1",
+  "esi-wallet.read_corporation_wallets.v1",
 ];
 
 export function decodeJwt(t) {
@@ -42,12 +44,12 @@ export const exchangeCode = (clientId, code, verifier) =>
 export const refreshToken = (clientId, refresh) =>
   tokenCall({ grant_type: "refresh_token", refresh_token: refresh, client_id: clientId });
 
-export async function esiGet(path, access) {
+export async function esiGet(path, access, { paged = true } = {}) {
   const out = [];
   let page = 1, pages = 1;
   do {
     const sep = path.includes("?") ? "&" : "?";
-    const r = await fetch(`${ESI}${path}${sep}datasource=tranquility&page=${page}`, {
+    const r = await fetch(`${ESI}${path}${sep}datasource=tranquility${paged ? "&page=" + page : ""}`, {
       headers: access ? { Authorization: "Bearer " + access } : {},
     });
     if (!r.ok) {
@@ -58,6 +60,7 @@ export async function esiGet(path, access) {
     const data = await r.json();
     if (!Array.isArray(data)) return data;
     out.push(...data);
+    if (!paged) return out;
     pages = parseInt(r.headers.get("X-Pages") || "1", 10);
     page++;
   } while (page <= pages && page <= 20);
@@ -101,3 +104,15 @@ export async function placeName(id, access) {
   try { const s = await esiGet(`/universe/structures/${id}/`, access); return s.name || String(id); }
   catch { return `Structure ${id}`; }
 }
+
+// ---- shared by the cloud-history API ----
+export const PROJECT_START_ISO = "2026-11-07T04:00:00Z";   // Nov 6 2026, 11:00 PM Eastern
+
+// The alert registration (char + key) is the account for cloud data.
+export async function authWatch(env, char, key) {
+  if (!env.WATCH || !/^\d+$/.test(char || "") || !key) return null;
+  const w = await env.WATCH.get("watch:" + char, "json");
+  return w && w.key === key ? w : null;
+}
+
+export const isoSeconds = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, "Z");

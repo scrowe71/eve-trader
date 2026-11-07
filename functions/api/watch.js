@@ -37,7 +37,9 @@ export async function onRequest({ request, env }) {
   if (request.method === "GET") {
     const w = await load(env, url.searchParams.get("char"), url.searchParams.get("key"));
     if (!w) return json({ on: false });
-    return json({ on: true, name: w.name, corp: w.corp, lastCheck: w.lastCheck || null, lastError: w.lastError || null, tracking: Object.keys(w.seen || {}).length });
+    return json({ on: true, name: w.name, corp: w.corp, lastCheck: w.lastCheck || null, lastError: w.lastError || null,
+      tracking: Object.keys(w.seen || {}).length, lastArchive: w.lastArchive || null, archiveError: w.archiveError || null,
+      sources: w.sources || [], cloud: !!env.DB });
   }
 
   if (request.method === "DELETE") {

@@ -4,6 +4,81 @@
 
 import { refreshToken, tokenInfo, esiGet, discord, placeName } from "../shared/eve.js";
 
+const ARCHIVE_EVERY_MS = 55 * 60 * 1000;   // copy wallets into D1 about once an hour
+
+async function runBatches(env, stmts) {
+  for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+}
+
+// Copy wallet transactions + journal (character and corp division) into D1. CCP only keeps ~30 days.
+async function archiveWallets(env, w, access, info, corpId) {
+  if (!env.DB) return;
+  if (!info.scopes.includes("esi-wallet.read_character_wallet.v1")) { w.archiveError = "The alert login has no wallet access. Turn alerts on again."; return; }
+  if (w.lastArchive && Date.now() - Date.parse(w.lastArchive) < ARCHIVE_EVERY_MS) return;
+
+  const txSql = "INSERT OR IGNORE INTO transactions (transaction_id, source, date, type_id, quantity, unit_price, is_buy, location_id, client_id, journal_ref_id) VALUES (?,?,?,?,?,?,?,?,?,?)";
+  const jSql = "INSERT OR IGNORE INTO journal (id, source, date, ref_type, amount, balance, context_id, context_id_type, first_party_id, second_party_id, description) VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+  const tx = (src, t) => env.DB.prepare(txSql).bind(t.transaction_id, src, t.date, t.type_id, t.quantity, t.unit_price, t.is_buy ? 1 : 0, t.location_id, t.client_id ?? null, t.journal_ref_id ?? null);
+  const jr = (src, e) => env.DB.prepare(jSql).bind(e.id, src, e.date, e.ref_type, e.amount ?? null, e.balance ?? null, e.context_id ?? null, e.context_id_type ?? null, e.first_party_id ?? null, e.second_party_id ?? null, e.description ?? null);
+
+  const errors = [];
+  const sources = new Set(w.sources || []);
+  const stmts = [];
+
+  const charSrc = "char:" + info.charId;
+  try {
+    const t = await esiGet(`/characters/${info.charId}/wallet/transactions/`, access, { paged: false });
+    const j = await esiGet(`/characters/${info.charId}/wallet/journal/`, access);
+    t.forEach((x) => stmts.push(tx(charSrc, x)));
+    j.forEach((x) => stmts.push(jr(charSrc, x)));
+    sources.add(charSrc);
+  } catch (e) { errors.push("Character wallet: " + e.message); }
+
+  // Which corp division to copy comes from the site settings stored in D1 (Trade journal tab).
+  let div = 1, corpOn = true;
+  try {
+    const row = await env.DB.prepare("SELECT data FROM settings WHERE char = ?").bind(info.charId).first();
+    if (row) {
+      const d = JSON.parse(row.data);
+      const s = d.settings || {};
+      div = Math.min(7, Math.max(1, Math.round(Number(s.jCorpDiv) || 1)));
+      corpOn = s.jCorpWallet !== "off";
+    }
+  } catch {}
+  if (corpOn && corpId) {
+    const corpSrc = `corp:${corpId}:${div}`;
+    try {
+      const t = await esiGet(`/corporations/${corpId}/wallets/${div}/transactions/`, access, { paged: false });
+      const j = await esiGet(`/corporations/${corpId}/wallets/${div}/journal/`, access);
+      t.forEach((x) => stmts.push(tx(corpSrc, x)));
+      j.forEach((x) => stmts.push(jr(corpSrc, x)));
+      sources.add(corpSrc);
+    } catch (e) {
+      errors.push(e.status === 403 ? `Corp wallet ${div}: this character needs the Accountant or Junior Accountant role` : `Corp wallet ${div}: ${e.message}`);
+    }
+  }
+
+  await runBatches(env, stmts);
+  w.sources = [...sources];
+  w.lastArchive = new Date().toISOString();
+  w.archiveError = errors.length ? errors.join("; ") : null;
+}
+
+// Keep every courier contract (with its real cost) in D1.
+async function saveHauls(env, w, couriers) {
+  if (!env.DB || !couriers.size) return;
+  const sql = `INSERT INTO hauls (contract_id, owner, issuer_id, status, start_location_id, end_location_id, volume, collateral, reward, title, date_issued, date_accepted, date_completed, updated)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(contract_id) DO UPDATE SET status = excluded.status, date_accepted = excluded.date_accepted,
+      date_completed = excluded.date_completed, updated = excluded.updated`;
+  const now = new Date().toISOString();
+  const stmts = [...couriers.values()].map((c) => env.DB.prepare(sql).bind(
+    c.contract_id, w.charId, c.issuer_id ?? null, c.status, c.start_location_id ?? null, c.end_location_id ?? null,
+    c.volume ?? null, c.collateral ?? null, c.reward ?? null, c.title ?? null,
+    c.date_issued ?? null, c.date_accepted ?? null, c.date_completed ?? null, now));
+  await runBatches(env, stmts);
+}
+
 const ALERT = {
   in_progress: { emoji: "🚚", text: "picked up" },
   finished: { emoji: "📦", text: "DELIVERED" },
@@ -24,15 +99,17 @@ async function checkOne(env, key) {
   if (!w) return;
   w.lastCheck = new Date().toISOString();
   try {
+    w.lastError = null;
     const tok = await refreshToken(env.EVE_CLIENT_ID, w.refresh);
     if (tok.refresh_token) w.refresh = tok.refresh_token;
     const access = tok.access_token;
     const info = tokenInfo(access);
 
     let contracts = await esiGet(`/characters/${info.charId}/contracts/`, access);
+    const ch = await esiGet(`/characters/${info.charId}/`);
+    const corpId = ch.corporation_id;
     if (w.corp) {
-      const ch = await esiGet(`/characters/${info.charId}/`);
-      try { contracts = contracts.concat(await esiGet(`/corporations/${ch.corporation_id}/contracts/`, access)); }
+      try { contracts = contracts.concat(await esiGet(`/corporations/${corpId}/contracts/`, access)); }
       catch (e) { w.lastError = "Corp contracts: " + e.message; }
     }
     const couriers = new Map();
@@ -61,10 +138,12 @@ async function checkOne(env, key) {
         }],
       });
     }
+    try { await saveHauls(env, w, couriers); } catch (e) { w.archiveError = "Saving hauls: " + e.message; }
+    try { await archiveWallets(env, w, access, info, corpId); } catch (e) { w.archiveError = "Wallet copy: " + e.message; }
+
     // Forget contracts that dropped off ESI (old ones) so the record stays small.
     for (const id of Object.keys(seen)) if (!couriers.has(Number(id))) delete seen[id];
     w.seen = seen;
-    if (!w.corp || !String(w.lastError || "").startsWith("Corp")) w.lastError = null;
   } catch (e) {
     w.lastError = e.message;
     if (e.status === 400 || e.status === 401) {

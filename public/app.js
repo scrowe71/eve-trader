@@ -21,6 +21,8 @@
     "esi-contracts.read_character_contracts.v1",
     "esi-contracts.read_corporation_contracts.v1",
     "esi-universe.read_structures.v1",
+    "esi-wallet.read_character_wallet.v1",       // the worker also copies your wallets into the cloud database
+    "esi-wallet.read_corporation_wallets.v1",
   ];
   const WALLET_SCOPES = [
     "esi-wallet.read_character_wallet.v1",
@@ -252,6 +254,7 @@
     const reg = (await esi(`/universe/regions/${con.region_id}/`)).data;
     hub = { id: Number(id), name: s.name, system: sys.name, regionId: con.region_id, region: reg.name };
     store.set("hub", hub);
+    markSettingsChanged();
     render();
     status(`Hub set to ${hub.name}.`, "ok");
   }
@@ -506,6 +509,7 @@
     const src = { label, at: new Date().toLocaleString(), count: doctrine.length, seed };
     try { localStorage.setItem("doctrineCsv", text); } catch {}
     store.set("doctrineSrc", src);
+    markSettingsChanged();
     showDocSource(src);
     renderDocButtons();
     status(`Loaded ${intf(doctrine.length)} tracker items (${intf(seed)} Seeding). Click "Build import list".`, "ok");
@@ -858,6 +862,68 @@
     store.set("tab", which);
   }
 
+  // ---------- cloud (D1) ----------
+  // The delivery-alert registration (char + key) is the account for cloud history and settings.
+  const cloudAuth = () => store.get("alerts", null);
+  const cloudQs = (a) => `char=${a.char}&key=${encodeURIComponent(a.key)}`;
+  let cloudTimer = null;
+
+  function markSettingsChanged() {
+    store.set("settingsUpdated", new Date().toISOString());
+    const a = cloudAuth();
+    if (!a) return;
+    clearTimeout(cloudTimer);
+    cloudTimer = setTimeout(pushSettings, 2500);
+  }
+
+  async function pushSettings() {
+    const a = cloudAuth();
+    if (!a) return;
+    let csv = null;
+    try { csv = localStorage.getItem("doctrineCsv"); } catch {}
+    const data = { settings, hub, doctrineCsv: csv, doctrineSrc: store.get("doctrineSrc", null), docUrl: store.get("docUrl", "") };
+    try {
+      const r = await fetch(`/api/data/settings?${cloudQs(a)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data }) });
+      const j = await r.json();
+      if (r.ok && j.updated) store.set("settingsUpdated", j.updated);
+    } catch {}
+  }
+
+  async function pullSettings() {
+    const a = cloudAuth();
+    if (!a) return false;
+    try {
+      const r = await fetch(`/api/data/settings?${cloudQs(a)}`);
+      if (!r.ok) return false;
+      const j = await r.json();
+      const local = store.get("settingsUpdated", "");
+      if (!j.data) { pushSettings(); return false; }          // first time: upload this device's settings
+      if (local && j.updated <= local) return false;           // this device is newer or the same
+      Object.assign(settings, j.data.settings || {});
+      store.set("settings", settings);
+      if (j.data.hub) { hub = j.data.hub; store.set("hub", hub); }
+      if (j.data.doctrineCsv) {
+        try { localStorage.setItem("doctrineCsv", j.data.doctrineCsv); } catch {}
+        store.set("doctrineSrc", j.data.doctrineSrc || null);
+      }
+      if (j.data.docUrl) store.set("docUrl", j.data.docUrl);
+      store.set("settingsUpdated", j.updated);
+      SETTING_IDS.forEach((k) => { const el = $(k); if (el) el.value = settings[k]; });
+      feeLine();
+      restoreDoctrine();
+      return true;
+    } catch { return false; }
+  }
+
+  async function cloudTrades(since) {
+    const a = cloudAuth();
+    if (!a) return null;
+    const r = await fetch(`/api/data/trades?${cloudQs(a)}&since=${encodeURIComponent(new Date(since).toISOString())}`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(j.error || "Cloud history " + r.status); e.status = r.status; throw e; }
+    return j;
+  }
+
   // ---------- delivery alerts ----------
   async function finishAlerts(code, saved) {
     store.set("tab", "journal");
@@ -868,7 +934,7 @@
       body: JSON.stringify({ code, code_verifier: saved.verifier, client_id: CFG.CLIENT_ID, webhook: saved.webhook, corp: saved.corp === "on" }),
     });
     const j = await r.json().catch(() => ({}));
-    if (j.key) store.set("alerts", { char: j.char, key: j.key, name: j.name });
+    if (j.key) { store.set("alerts", { char: j.char, key: j.key, name: j.name }); pushSettings(); }
     if (!r.ok || j.error) throw new Error(j.error || "Couldn't turn on alerts (" + r.status + ").");
     status(`Delivery alerts are on for ${j.name}. Check your Discord channel for the test message.`, "ok");
   }
@@ -906,7 +972,11 @@
       if (!j.on) { $("aState").textContent = "Alerts are off (the server doesn't have them any more). Turn them on again."; return; }
       $("aState").textContent = `Alerts are on for ${j.name}${j.corp ? " (character + corp contracts)" : ""}. ` +
         (j.lastCheck ? `Last check ${new Date(j.lastCheck).toLocaleString()}, watching ${j.tracking} courier contract${j.tracking === 1 ? "" : "s"}.` : "Waiting for the first check (runs every 10 minutes).") +
-        (j.lastError ? ` Last problem: ${j.lastError}` : "");
+        (j.lastError ? ` Last problem: ${j.lastError}` : "") +
+        (j.cloud
+          ? (j.lastArchive ? ` Cloud history: wallets last copied ${new Date(j.lastArchive).toLocaleString()} (${(j.sources || []).join(", ") || "none yet"}).` : " Cloud history: first wallet copy happens on the next check.") +
+            (j.archiveError ? ` Cloud problem: ${j.archiveError}` : "")
+          : " Cloud history isn't set up yet (see README).");
     } catch (e) {
       $("aState").textContent = `Alerts were turned on for ${a.name}, but I couldn't check their status (${e.message}).`;
     }
@@ -972,7 +1042,7 @@
     });
     if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
     else if (sel.options.length) { sel.value = sel.options[0].value; settings.jCorpChar = sel.value; }
-    $("jRun").disabled = !list.some((c) => hasWallet(c) && c.include !== false);
+    $("jRun").disabled = !(list.some((c) => hasWallet(c) && c.include !== false) || cloudAuth());
   }
 
   async function allPages(path, charId) {
@@ -1011,7 +1081,9 @@
       const since = Math.max(Date.now() - period, from);
       const txs = [], journal = [];
       const who = Object.values(chars).filter((c) => hasWallet(c) && c.include !== false);
-      if (settings.jCorpWallet === "on" && !settings.jCorpChar) throw new Error("Pick which character reads the corp wallet (it needs the Accountant or Junior Accountant role).");
+      const haveCloud = !!cloudAuth();
+      if (!who.length && !haveCloud) throw new Error("Add a character with wallet access, or turn on delivery alerts (which also keeps your history in the cloud).");
+      if (settings.jCorpWallet === "on" && !settings.jCorpChar && !haveCloud) throw new Error("Pick which character reads the corp wallet (it needs the Accountant or Junior Accountant role).");
       for (const c of who) {
         status(`Reading ${c.name}'s wallet…`, "busy");
         txs.push(...(await transactions(`/characters/${c.charId}/wallet/transactions/`, c.charId)));
@@ -1034,6 +1106,23 @@
             : " The corp wallet couldn't be read (" + e.message + ").";
         }
       }
+
+      // Cloud history (D1): everything the worker has copied since the project start, older than CCP keeps.
+      let hauls = [], cloudNote = "";
+      if (haveCloud) {
+        status("Reading cloud history…", "busy");
+        try {
+          const c = await cloudTrades(from);
+          txs.push(...c.transactions);
+          journal.push(...c.journal);
+          hauls = c.hauls || [];
+          cloudNote = c.lastArchive ? ` Cloud history last copied ${new Date(c.lastArchive).toLocaleString()}.` : " Cloud history has no wallet copy yet.";
+          if (c.archiveError) cloudNote += " Cloud problem: " + c.archiveError;
+        } catch (e) {
+          cloudNote = " Cloud history couldn't be read (" + e.message + ").";
+        }
+      }
+      corpNote += cloudNote;
 
       // Unique transactions (corp + personal can overlap).
       const seen = new Set();
@@ -1131,6 +1220,12 @@
       $("jNote").textContent =
         (missing ? `${missing} item${missing === 1 ? " has" : "s have"} sales but no purchase in the wallets I read, so their profit is blank (bought with a character or corp division you didn't include, or more than 90 days ago). ` : "") +
         "Hauling is estimated from your hauling settings (express fee not included). \"Left\" is bought minus sold across the wallet history read, so it's approximate." + corpNote;
+      const myHauls = hauls.filter((h) => (!hub || h.end_location_id === hub.id) && h.start_location_id === JITA_STATION && h.status !== "deleted" && h.status !== "rejected");
+      if (myHauls.length) {
+        const paid = myHauls.reduce((a, h) => a + (h.reward || 0), 0);
+        const est = jRows.reduce((a, r) => a + (r.buyQty || 0) * r.haulUnit, 0);
+        $("jNote").textContent += ` Courier contracts Jita → hub since the start: ${myHauls.length}, actually paid ${isk(paid)} (the estimate for everything bought is ${isk(est)}).`;
+      }
 
       jSort = { key: "profit", dir: -1 };
       drawJournal();
@@ -1160,6 +1255,7 @@
     settings.jFrom = value;
     $("jFrom").value = value;
     store.set("settings", settings);
+    markSettingsChanged();
     clearJournal();
     status(value
       ? `The journal now counts only trades from ${new Date(Math.max(PROJECT_START, Date.parse(value) || 0)).toLocaleString()} onward.`
@@ -1468,6 +1564,7 @@
       el.addEventListener("change", () => {
         settings[k] = TEXT_SETTINGS.has(k) ? el.value : (parseFloat(el.value) || 0);
         store.set("settings", settings);
+        markSettingsChanged();
         feeLine();
         if (k === "dShow") { if (docResults.length) drawDocTable(); return; }
         if (results.length || docResults.length) status("Settings changed. Run the list again to update it.", "");
@@ -1586,10 +1683,12 @@
       setTab(store.get("tab", "doc"));
       return;
     }
+    const synced = await pullSettings();
     render();
     renderChars();
     renderAlerts();
     setTab(store.get("tab", "doc"));
+    if (synced) { status("Settings and tracker updated from your other device.", "ok"); return; }
     if (!token) status("Log in with the character that can dock at your alliance hub.", "");
     else if (!hub) status(`Logged in as ${token.name}. Now find your hub structure.`, "ok");
     else status(`Ready. Click "Scan for imports" to compare ${hub.name} with Jita.`, "ok");

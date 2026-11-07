@@ -151,6 +151,27 @@ A small Cloudflare Worker (`watcher/`) checks your courier contracts every 10 mi
 - **Optional:** set `ALLOWED_CHARACTERS` (comma-separated character IDs) on the Pages project to stop anyone else registering alerts on your site.
 - **Testing:** visit the worker's URL (`https://eve-trader-watcher.<your-subdomain>.workers.dev`) to run a check right away.
 
+## Cloud history (Cloudflare D1)
+
+CCP only keeps about 30 days of wallet journal. The watcher Worker copies your wallets into a D1 database **every hour**: the character, plus the corp division set on the Trade journal tab. It also stores every courier contract with what it actually cost. The Trade journal and Sell prices tabs read this history together with the live wallet, so nothing from your trading is lost.
+
+Your **delivery-alert registration** works as your cloud account. While alerts are on:
+
+- **Settings sync:** your settings, hub and doctrine tracker are saved to the cloud and load on any device.
+- **Wallet copies:** the alert login includes wallet access so the Worker can copy your wallets. Log in with the character that has the corp **Accountant** (or Junior Accountant) role.
+
+### One-time setup (PowerShell, in the `watcher` folder)
+
+```powershell
+npx wrangler d1 create eve-trader
+```
+Put the `database_id` it prints into `watcher\wrangler.toml` (replace `PASTE_D1_DATABASE_ID_HERE`), then:
+```powershell
+npx wrangler d1 execute eve-trader --remote --file=schema.sql
+npx wrangler deploy
+```
+In the Cloudflare dashboard, go to **Workers & Pages → eve-trader → Settings → Bindings → Add → D1 database**. Set the variable name to `DB`, choose database `eve-trader`, and save. Then redeploy the site (merge `dev` into `main`) and turn delivery alerts on, or on again, from the Trade journal tab.
+
 ## Known limits
 
 - ESI caches structure markets for about 5 minutes, so scanning more often than that won't show anything new.
