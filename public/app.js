@@ -23,6 +23,9 @@
     "esi-universe.read_structures.v1",
     "esi-wallet.read_character_wallet.v1",       // the worker also copies your wallets into the cloud database
     "esi-wallet.read_corporation_wallets.v1",
+    "esi-markets.structure_markets.v1",          // daily summary: hub prices and your orders
+    "esi-markets.read_corporation_orders.v1",
+    "esi-markets.read_character_orders.v1",
   ];
   const WALLET_SCOPES = [
     "esi-wallet.read_character_wallet.v1",
@@ -1953,6 +1956,7 @@
     $("aOn").addEventListener("click", () => alertsOn().catch((e) => status(e.message, "err")));
     $("aOff").addEventListener("click", alertsOff);
     $("aRefresh").addEventListener("click", renderAlerts);
+    if (CFG.WATCHER_URL) $("aSummaryNow").href = CFG.WATCHER_URL + "/?summary=1";
     $("jFromNow").addEventListener("click", () => {
       const d = new Date();
       d.setSeconds(0, 0);

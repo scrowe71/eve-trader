@@ -3,6 +3,24 @@
 // it reads courier contracts and posts to Discord when one is picked up, delivered or fails.
 
 import { refreshToken, tokenInfo, esiGet, discord, placeName } from "../shared/eve.js";
+import { postSummary } from "./summary.js";
+
+const SUMMARY_CRON = "0 13 * * *";   // 8:00 AM Eastern (EST) every day
+
+async function summaryOne(env, key) {
+  const w = await env.WATCH.get(key, "json");
+  if (!w) return "missing";
+  try {
+    const tok = await refreshToken(env.EVE_CLIENT_ID, w.refresh);
+    if (tok.refresh_token) { w.refresh = tok.refresh_token; await env.WATCH.put(key, JSON.stringify(w)); }
+    const info = tokenInfo(tok.access_token);
+    const ch = await esiGet(`/characters/${info.charId}/`);
+    return await postSummary(env, w, tok.access_token, info, ch.corporation_id);
+  } catch (e) {
+    try { await discord(w.webhook, { content: "📊 Daily summary failed: " + e.message }); } catch {}
+    return "error: " + e.message;
+  }
+}
 
 const ARCHIVE_EVERY_MS = 55 * 60 * 1000;   // copy wallets into D1 about once an hour
 
@@ -160,11 +178,17 @@ async function checkOne(env, key) {
 export default {
   async scheduled(event, env, ctx) {
     const list = await env.WATCH.list({ prefix: "watch:" });
+    if (event.cron === SUMMARY_CRON) { for (const k of list.keys) await summaryOne(env, k.name); return; }
     for (const k of list.keys) await checkOne(env, k.name);
   },
-  // Visiting the worker's URL runs a check right away (handy for testing).
+  // Visiting the worker's URL runs a check right away; add ?summary=1 to post the daily summary now.
   async fetch(request, env) {
     const list = await env.WATCH.list({ prefix: "watch:" });
+    if (new URL(request.url).searchParams.get("summary")) {
+      const res = [];
+      for (const k of list.keys) res.push(await summaryOne(env, k.name));
+      return new Response(`Summary: ${res.join(", ") || "no watchers"}\n`, { headers: { "Content-Type": "text/plain" } });
+    }
     for (const k of list.keys) await checkOne(env, k.name);
     return new Response(`Checked ${list.keys.length} watcher(s).\n`, { headers: { "Content-Type": "text/plain" } });
   },

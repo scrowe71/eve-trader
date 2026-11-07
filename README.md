@@ -162,6 +162,16 @@ A small Cloudflare Worker (`watcher/`) checks your courier contracts every 10 mi
 - **Optional:** set `ALLOWED_CHARACTERS` (comma-separated character IDs) on the Pages project to stop anyone else registering alerts on your site.
 - **Testing:** visit the worker's URL (`https://eve-trader-watcher.<your-subdomain>.workers.dev`) to run a check right away.
 
+## Daily summary (Discord)
+
+Every day at 8:00 AM Eastern, the watcher posts a summary to the alerts channel:
+
+- **Last 24 hours:** profit on your import sales, after Jita cost, hauling, the actual sales tax and the hub broker fee, plus your top items.
+- **Restock soon:** imported items that are sold out or have under 3 days of stock left. Stock means bought in Jita minus sold at the hub. Days come from the doctrine tracker or regional history. It also notes items with no other sellers.
+- **Orders worth updating:** the same rules as the Order check tab.
+
+It uses the settings, hub and tracker you saved on the site, plus the cloud history. The alert login asks for market access (`esi-markets.structure_markets.v1`, `esi-markets.read_corporation_orders.v1`, `esi-markets.read_character_orders.v1`), so **turn alerts on again once** after updating. To get a summary right away, open `https://eve-trader-watcher.<subdomain>.workers.dev/?summary=1`.
+
 ## Cloud history (Cloudflare D1)
 
 CCP only keeps about 30 days of wallet journal. The watcher Worker copies your wallets into a D1 database **every hour**: the character, plus the corp division set on the Trade journal tab. It also stores every courier contract with what it actually cost. The Trade journal and Sell prices tabs read this history together with the live wallet, so nothing from your trading is lost.

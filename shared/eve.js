@@ -8,6 +8,9 @@ export const ALERT_SCOPES = [
   "esi-universe.read_structures.v1",
   "esi-wallet.read_character_wallet.v1",
   "esi-wallet.read_corporation_wallets.v1",
+  "esi-markets.structure_markets.v1",          // daily summary: hub prices
+  "esi-markets.read_corporation_orders.v1",    // daily summary: your orders
+  "esi-markets.read_character_orders.v1",
 ];
 
 export function decodeJwt(t) {
