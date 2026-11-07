@@ -4,6 +4,9 @@
   const CFG = window.APP_CONFIG || {};
   const ESI = "https://esi.evetech.net/latest";
   const JITA_REGION = 10000002;   // The Forge
+  // Import project start: Nov 6 2026, 11:00 PM Eastern (UTC-5). Wallet activity before this
+  // (earlier trading out of the same corp wallet) is never counted in the Trade journal.
+  const PROJECT_START = Date.parse("2026-11-07T04:00:00Z");
   const JF_CARGO = 350000;        // m³ per hauling contract (one full JF load)
   const JITA_STATION = 60003760;  // Jita IV - Moon 4 - Caldari Navy Assembly Plant
   const SSO_AUTHORIZE = "https://login.eveonline.com/v2/oauth/authorize/";
@@ -938,7 +941,7 @@
     $("jRun").disabled = true;
     try {
       const period = Math.max(1, settings.jPeriod) * 86400000;
-      const from = settings.jFrom ? Date.parse(settings.jFrom) || 0 : 0;   // "Count trades from"
+      const from = Math.max(PROJECT_START, settings.jFrom ? Date.parse(settings.jFrom) || 0 : 0);   // never before project start
       const since = Math.max(Date.now() - period, from);
       const txs = [], journal = [];
       const who = Object.values(chars).filter((c) => hasWallet(c) && c.include !== false);
@@ -975,7 +978,7 @@
       const byType = new Map();
       const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, soldQty: 0, revenue: 0, allSold: 0 }; byType.set(id, r); } return r; };
       for (const t of uniq) {
-        if (from && Date.parse(t.date) < from) continue;
+        if (Date.parse(t.date) < from) continue;
         const r = get(t.type_id);
         if (t.is_buy) {
           if (jitaOnly && t.location_id !== JITA_STATION) continue;   // only Jita 4-4 purchases count as imports
@@ -1089,8 +1092,8 @@
     store.set("settings", settings);
     clearJournal();
     status(value
-      ? `The journal now counts only trades from ${new Date(value).toLocaleString()} onward.`
-      : "The journal now counts all wallet history again.", "ok");
+      ? `The journal now counts only trades from ${new Date(Math.max(PROJECT_START, Date.parse(value) || 0)).toLocaleString()} onward.`
+      : `The journal now counts everything since the project started (${new Date(PROJECT_START).toLocaleString()}).`, "ok");
   }
 
   const J_COLS = [

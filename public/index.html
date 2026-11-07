@@ -302,11 +302,11 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           </label>
         </div>
         <div class="row">
-          <label>Count trades from (blank = all history)<input id="jFrom" type="datetime-local"></label>
+          <label>Count trades from (blank = since project start, Nov 6 11:00 PM)<input id="jFrom" type="datetime-local" min="2026-11-06T23:00"></label>
           <button type="button" id="jFromNow">Start fresh from now</button>
-          <button type="button" id="jFromClear">Use all history</button>
+          <button type="button" id="jFromClear">Since project start</button>
         </div>
-        <p class="hint">Set this to just before your first import purchase so older activity in the corp wallet (industry, other trades) isn't counted. It applies to buys, sales and fees.</p>
+        <p class="hint">Nothing before the project start (Nov 6, 11:00 PM Eastern) is ever counted, so earlier trading in the corp wallet stays out. Set a later date here to look at just one haul. It applies to buys, sales and fees.</p>
         <p class="hint">The corp wallet needs a character with the Accountant or Junior Accountant role. Division numbers follow the order in the in-game Corporation → Wallet window: 1 is Master Wallet, then 2 to 7. Everything in that division is counted as your trading.</p>
         <div class="row">
           <button type="button" class="primary" id="jRun" disabled>Load my trades</button>
