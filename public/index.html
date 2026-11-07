@@ -80,6 +80,16 @@ td:first-child { font-family: var(--body); white-space: normal; min-width: 180px
 .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; display: grid; gap: 2px; }
 .tile .k { font-size: 12px; color: var(--muted); }
 .tile .v { font: 600 22px var(--display); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--bg); color: var(--muted); padding: 8px 16px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #1a1406; }
+.fields.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 640px) { .fields.four { grid-template-columns: 1fr 1fr; } }
+.source { display: grid; gap: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+.est { font: 600 10px var(--body); color: var(--warn); margin-left: 4px; }
+.cls { font: 600 11px var(--body); padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.cls.seed { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
 .hidden { display: none !important; }
 .login-hero { display: grid; gap: 10px; max-width: 60ch; }
 footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
@@ -158,6 +168,68 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <button type="button" id="hubIdBtn">Use this ID</button>
           </div>
         </div>
+      </section>
+
+      <div class="seg" role="group" aria-label="What to look at">
+        <button type="button" id="tabDoc" aria-pressed="true">Doctrine list</button>
+        <button type="button" id="tabScan" aria-pressed="false">Hub scan</button>
+      </div>
+
+      <section class="panel" id="docPanel" aria-labelledby="hDoc">
+        <h2 id="hDoc">Doctrine import list</h2>
+        <p class="hint">Load the Initiative Doctrine Stock Tracker. The site finds every item the hub is short of, prices it against Jita and the Keepstar, and builds a buy list that fits your budget.</p>
+        <div class="source">
+          <div class="row">
+            <label>Upload the tracker CSV<input id="docFile" type="file" accept=".csv,text/csv"></label>
+          </div>
+          <div class="row">
+            <label>Or a Google Sheets link (must be viewable without login)<input id="docUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+            <button type="button" id="docUrlBtn">Load sheet</button>
+          </div>
+          <p class="hint" id="docSource">No tracker loaded yet.</p>
+        </div>
+        <div class="fields four">
+          <label>Days to cover<input id="dDays" type="number" min="1" max="90" step="1"></label>
+          <label>Usage to plan on
+            <select id="dDemand"><option value="a30">30-day average</option><option value="a7">7-day average</option><option value="max">Higher of the two</option></select>
+          </label>
+          <label>Include
+            <select id="dClasses"><option value="seed">Seeding items only</option><option value="all">Seeding + Industry</option></select>
+          </label>
+          <label>Sold-out markup % of Jita<input id="dMarkup" type="number" min="100" step="5"></label>
+          <label>Minimum return %<input id="dMinRoi" type="number" step="1"></label>
+          <label>Max ISK per item<input id="dItemCap" type="number" step="10000000" min="0"></label>
+          <label>Total budget<input id="dBudget" type="number" step="100000000" min="0"></label>
+          <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="docRun" disabled>Build import list</button>
+          <button type="button" id="docMulti" disabled>Copy for Multibuy</button>
+          <button type="button" id="docCsv" disabled>Download CSV</button>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="docResults" aria-labelledby="hDocRes">
+        <h2 id="hDocRes">Buy list</h2>
+        <div class="summary">
+          <div class="tile"><span class="k">Items to buy</span><span class="v" id="dItems">–</span></div>
+          <div class="tile"><span class="k">ISK to spend (incl. hauling)</span><span class="v" id="dSpend">–</span></div>
+          <div class="tile"><span class="k">Cargo</span><span class="v" id="dM3">–</span></div>
+          <div class="tile"><span class="k">Expected profit</span><span class="v" id="dProfit">–</span></div>
+        </div>
+        <p class="hint">Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget or cargo runs out. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar, so the sell price is your sold-out markup on the Jita cost. Profit assumes everything sells at today's hub price.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr id="dThead"></tr></thead>
+            <tbody id="dTbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="dSkipped"></p>
+      </section>
+
+      <section class="panel hidden" id="scanPanel" aria-labelledby="hScan">
+        <h2 id="hScan">Hub scan</h2>
+        <p class="hint">Compares everything currently for sale in the Keepstar with Jita. Good for spotting oddities; the Doctrine list is better for steady imports.</p>
         <div class="row">
           <button type="button" class="primary" id="scan" disabled>Scan for imports</button>
           <button type="button" id="csv" disabled>Download CSV</button>

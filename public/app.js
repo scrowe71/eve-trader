@@ -22,7 +22,10 @@
   const DEFAULTS = {
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
     haulRate: 800, coll: 1, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
+    dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 10,
+    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0,
   };
+  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   let token = store.get("token", null);
   let hub = store.get("hub", null);
@@ -298,33 +301,49 @@
     };
   }
 
+  async function loadHubAgg() {
+    status("Downloading hub orders…", "busy");
+    const orders = await hubOrders(hub.id);
+    const agg = new Map();
+    for (const o of orders) {
+      let a = agg.get(o.type_id);
+      if (!a) { a = { sellMin: Infinity, sellQty: 0, sellOrders: 0, buyMax: 0 }; agg.set(o.type_id, a); }
+      if (o.is_buy_order) { if (o.price > a.buyMax) a.buyMax = o.price; }
+      else { a.sellQty += o.volume_remain; a.sellOrders++; if (o.price < a.sellMin) a.sellMin = o.price; }
+    }
+    agg.orderCount = orders.length;
+    return agg;
+  }
+
+  async function loadJita(typeIds) {
+    const jita = {};
+    const batches = chunk(typeIds, 200);
+    let done = 0;
+    await pool(batches, 4, async (b) => {
+      const r = await fetch("/api/jita?types=" + b.join(","));
+      if (!r.ok) throw new Error("Jita price lookup failed (" + r.status + "). Try again in a minute.");
+      Object.assign(jita, await r.json());
+      status(`Pulling Jita prices: ${++done} of ${batches.length}…`, "busy");
+    });
+    return jita;
+  }
+
+  function scanError(e) {
+    console.error(e);
+    if (e.status === 403) status("CCP refused the hub's market (403). Make sure this character can dock there and the structure's market is open to you.", "err");
+    else if (e.status === 401) status("Your login expired. Log out and log in again.", "err");
+    else status(e.message || String(e), "err");
+  }
+
   async function scan() {
     if (!hub) return;
     $("scan").disabled = true;
     $("csv").disabled = true;
     try {
-      status("Downloading hub orders…", "busy");
-      const orders = await hubOrders(hub.id);
-
-      const agg = new Map();
-      for (const o of orders) {
-        let a = agg.get(o.type_id);
-        if (!a) { a = { sellMin: Infinity, sellQty: 0, sellOrders: 0, buyMax: 0 }; agg.set(o.type_id, a); }
-        if (o.is_buy_order) { if (o.price > a.buyMax) a.buyMax = o.price; }
-        else { a.sellQty += o.volume_remain; a.sellOrders++; if (o.price < a.sellMin) a.sellMin = o.price; }
-      }
+      const agg = await loadHubAgg();
       const typeIds = [...agg.keys()].filter((t) => agg.get(t).sellMin < Infinity);
-
-      status(`Hub has ${intf(orders.length)} orders across ${intf(typeIds.length)} items for sale. Pulling Jita prices…`, "busy");
-      const jita = {};
-      const batches = chunk(typeIds, 200);
-      let done = 0;
-      await pool(batches, 4, async (b) => {
-        const r = await fetch("/api/jita?types=" + b.join(","));
-        if (!r.ok) throw new Error("Jita price lookup failed (" + r.status + "). Try again in a minute.");
-        Object.assign(jita, await r.json());
-        status(`Pulling Jita prices: ${++done} of ${batches.length}…`, "busy");
-      });
+      status(`Hub has ${intf(agg.orderCount)} orders across ${intf(typeIds.length)} items for sale. Pulling Jita prices…`, "busy");
+      const jita = await loadJita(typeIds);
 
       // Pass 1: no hauling volume yet; keep anything that could clear the bar.
       let cands = typeIds
@@ -364,13 +383,310 @@
         ? `Found ${results.length} imports at ${settings.minRoi}%+ return. Sorted by profit per day of trade volume.`
         : `No imports cleared ${settings.minRoi}% return. Try a lower minimum or check your fee settings.`, "ok");
     } catch (e) {
-      console.error(e);
-      if (e.status === 403) status("CCP refused the hub's market (403). Make sure this character can dock there and the structure's market is open to you.", "err");
-      else if (e.status === 401) status("Your login expired. Log out and log in again.", "err");
-      else status(e.message || String(e), "err");
+      scanError(e);
     } finally {
       $("scan").disabled = !hub || !token;
     }
+  }
+
+  // ---------- doctrine list ----------
+  let doctrine = null;       // parsed tracker rows
+  let docResults = [];
+  let docSort = { key: "totalProfit", dir: -1 };
+
+  function parseNum(s) {
+    s = String(s == null ? "" : s).trim().replace(/,/g, "").replace(/%$/, "");
+    if (!s) return 0;
+    let neg = false;
+    if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
+    const v = parseFloat(s);
+    return isFinite(v) ? (neg ? -v : v) : 0;
+  }
+
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], f = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+        else f += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(f); f = ""; }
+      else if (c === "\n") { row.push(f); rows.push(row); row = []; f = ""; }
+      else if (c !== "\r") f += c;
+    }
+    if (f || row.length) { row.push(f); rows.push(row); }
+    return rows;
+  }
+
+  function parseDoctrine(text) {
+    const rows = parseCsv(text.replace(/^﻿/, ""));
+    const hi = rows.findIndex((r) => r.some((c) => c.trim().toLowerCase() === "type id"));
+    if (hi < 0) throw new Error("Couldn't find the 'Type ID' header. Is this the Doctrine Stock Tracker?");
+    const h = rows[hi].map((c) => c.trim().toLowerCase());
+    const col = (n) => h.indexOf(n);
+    const c = { id: col("type id"), name: col("item"), stock: col("stock"), a7: col("7d avg"), a30: col("30d avg"), alert: col("alert"), cls: col("classification"), kind: col("class v2") };
+    if ([c.id, c.name, c.stock, c.a7, c.a30].some((i) => i < 0)) throw new Error("The tracker is missing one of: Type ID, Item, Stock, 7D Avg, 30D Avg.");
+    const out = [];
+    for (const r of rows.slice(hi + 1)) {
+      const id = parseInt(r[c.id], 10);
+      if (!id) continue;
+      out.push({
+        typeId: id,
+        name: (r[c.name] || "").trim(),
+        stock: parseNum(r[c.stock]),
+        a7: parseNum(r[c.a7]),
+        a30: parseNum(r[c.a30]),
+        alert: c.alert >= 0 ? (r[c.alert] || "").trim() : "",
+        cls: c.cls >= 0 ? (r[c.cls] || "").trim() : "",
+        kind: c.kind >= 0 ? (r[c.kind] || "").trim() : "",
+      });
+    }
+    if (!out.length) throw new Error("No item rows found in the tracker.");
+    return out;
+  }
+
+  function setDoctrine(text, label) {
+    doctrine = parseDoctrine(text);
+    const seed = doctrine.filter((d) => d.cls === "Seeding").length;
+    const src = { label, at: new Date().toLocaleString(), count: doctrine.length, seed };
+    try { localStorage.setItem("doctrineCsv", text); } catch {}
+    store.set("doctrineSrc", src);
+    showDocSource(src);
+    renderDocButtons();
+    status(`Loaded ${intf(doctrine.length)} tracker items (${intf(seed)} Seeding). Click "Build import list".`, "ok");
+  }
+
+  function showDocSource(src) {
+    $("docSource").textContent = src
+      ? `Loaded ${intf(src.count)} items (${intf(src.seed)} Seeding) from ${src.label} · ${src.at}`
+      : "No tracker loaded yet.";
+  }
+
+  function renderDocButtons() {
+    $("docRun").disabled = !doctrine || !hub || !token;
+    $("docMulti").disabled = !docResults.length;
+    $("docCsv").disabled = !docResults.length;
+  }
+
+  async function runDoctrine() {
+    if (!doctrine || !hub) return;
+    $("docRun").disabled = true;
+    try {
+      const pick = settings.dDemand;
+      let items = doctrine
+        .filter((d) => settings.dClasses === "all" || d.cls === "Seeding")
+        .map((d) => {
+          const demand = pick === "a7" ? d.a7 : pick === "max" ? Math.max(d.a7, d.a30) : (d.a30 || d.a7);
+          const need = Math.ceil(settings.dDays * demand - d.stock);
+          return { ...d, demand, need, daysLeft: demand > 0 ? d.stock / demand : Infinity };
+        })
+        .filter((d) => d.need > 0);
+
+      if (!items.length) { status("Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
+
+      const agg = await loadHubAgg();
+      status(`${intf(items.length)} tracker items are short. Pulling Jita prices…`, "busy");
+      const jita = await loadJita(items.map((d) => d.typeId));
+      await volumes(items.map((d) => d.typeId));
+
+      const tax = salesTax(), bfH = hubBroker(), bfJ = jitaBroker();
+      const priced = [], skipped = { noJita: 0, lowRoi: 0, budget: 0 };
+      for (const d of items) {
+        const j = jita[d.typeId];
+        const jSell = parseFloat(j && j.sell && j.sell.min) || 0;
+        const jBuy = parseFloat(j && j.buy && j.buy.max) || 0;
+        let cost, buyFee = 0;
+        if (settings.buyHow === "order") { cost = jBuy; buyFee = bfJ * jBuy; } else cost = jSell;
+        if (!cost) { skipped.noJita++; continue; }
+
+        const h = agg.get(d.typeId);
+        const hubSell = h && h.sellMin < Infinity ? h.sellMin : null;
+        const sell = hubSell !== null ? hubSell : cost * settings.dMarkup / 100;
+        const vol = volCache[d.typeId] || 0;
+        const haul = settings.haulRate * vol + (settings.coll / 100) * cost;
+        const unitSpend = cost + buyFee + haul;
+        const profit = sell * (1 - bfH - tax) - unitSpend;
+        const roi = unitSpend > 0 ? profit / unitSpend : 0;
+        if (roi < settings.dMinRoi / 100) { skipped.lowRoi++; continue; }
+        const capQty = settings.dItemCap > 0 ? Math.floor(settings.dItemCap / unitSpend) : d.need;
+        priced.push({
+          ...d, cost, sell, est: hubSell === null, hubListed: h ? h.sellQty : 0,
+          vol, unitSpend, profit, roi, qty: Math.min(d.need, capQty),
+        });
+      }
+
+      // Fill best-first by total profit until budget / cargo runs out.
+      priced.sort((a, b) => b.profit * b.qty - a.profit * a.qty);
+      let budgetLeft = settings.dBudget > 0 ? settings.dBudget : Infinity;
+      let cargoLeft = settings.dCargo > 0 ? settings.dCargo : Infinity;
+      docResults = [];
+      for (const p of priced) {
+        let q = Math.min(p.qty, Math.floor(budgetLeft / p.unitSpend));
+        if (p.vol > 0) q = Math.min(q, Math.floor(cargoLeft / p.vol));
+        if (q <= 0) { skipped.budget++; continue; }
+        p.qty = q;
+        p.totalSpend = q * p.unitSpend;
+        p.totalM3 = q * p.vol;
+        p.totalProfit = q * p.profit;
+        budgetLeft -= p.totalSpend;
+        cargoLeft -= p.totalM3;
+        docResults.push(p);
+      }
+
+      await names(docResults.map((r) => r.typeId));
+      docResults.forEach((r) => { if (!r.name) r.name = nameCache[r.typeId] || "Type " + r.typeId; });
+
+      const sum = (k) => docResults.reduce((a, r) => a + r[k], 0);
+      $("dItems").textContent = intf(docResults.length);
+      $("dSpend").textContent = isk(sum("totalSpend"));
+      $("dM3").textContent = intf(sum("totalM3")) + " m³";
+      $("dProfit").textContent = isk(sum("totalProfit"));
+      const bits = [];
+      if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
+      if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
+      if (skipped.budget) bits.push(`${skipped.budget} didn't fit the budget or cargo`);
+      $("dSkipped").textContent = bits.length ? "Left out: " + bits.join(", ") + "." : "";
+      $("docResults").classList.remove("hidden");
+      docSort = { key: "totalProfit", dir: -1 };
+      drawDocTable();
+      status(docResults.length
+        ? `Buy list ready: ${docResults.length} items, ${isk(sum("totalSpend"))} to spend, about ${isk(sum("totalProfit"))} profit.`
+        : "No short items cleared your minimum return. Try a lower minimum or a higher sold-out markup.", "ok");
+    } catch (e) {
+      scanError(e);
+    } finally {
+      renderDocButtons();
+    }
+  }
+
+  const DOC_COLS = [
+    { k: "name", label: "Item" },
+    { k: "cls", label: "Type" },
+    { k: "daysLeft", label: "Days left", f: (v) => (isFinite(v) ? v.toFixed(1) : "–") },
+    { k: "need", label: "Short by", f: intf },
+    { k: "cost", label: "Jita cost", f: isk },
+    { k: "sell", label: "Hub sell", f: isk },
+    { k: "roi", label: "Return", f: pct },
+    { k: "qty", label: "Buy", f: intf },
+    { k: "totalSpend", label: "ISK", f: isk },
+    { k: "totalM3", label: "m³", f: (v) => (v >= 100 ? intf(v) : v.toFixed(1)) },
+    { k: "totalProfit", label: "Profit", f: isk },
+  ];
+
+  function drawDocTable() {
+    const tr = $("dThead");
+    tr.innerHTML = "";
+    DOC_COLS.forEach((c) => {
+      const th = document.createElement("th");
+      th.textContent = c.label;
+      th.tabIndex = 0;
+      if (c.k === docSort.key) th.setAttribute("aria-sort", docSort.dir < 0 ? "descending" : "ascending");
+      const go = () => {
+        if (docSort.key === c.k) docSort.dir = -docSort.dir;
+        else docSort = { key: c.k, dir: c.k === "name" || c.k === "cls" || c.k === "daysLeft" ? 1 : -1 };
+        drawDocTable();
+      };
+      th.addEventListener("click", go);
+      th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      tr.appendChild(th);
+    });
+
+    const { key, dir } = docSort;
+    const rows = [...docResults].sort((a, b) => {
+      const x = a[key], y = b[key];
+      if (typeof x === "string") return dir * x.localeCompare(y);
+      return dir * ((isFinite(x) ? x : 1e18) - (isFinite(y) ? y : 1e18));
+    });
+
+    const tb = $("dTbody");
+    tb.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    rows.forEach((r) => {
+      const row = document.createElement("tr");
+      DOC_COLS.forEach((c) => {
+        const td = document.createElement("td");
+        if (c.k === "name") {
+          td.textContent = r.name;
+        } else if (c.k === "cls") {
+          const s = document.createElement("span");
+          s.className = "cls" + (r.cls === "Seeding" ? " seed" : "");
+          s.textContent = r.kind ? `${r.cls || "?"} · ${r.kind}` : (r.cls || "?");
+          td.appendChild(s);
+        } else if (c.k === "roi") {
+          const s = document.createElement("span");
+          s.className = "chip " + (r.roi >= 0.2 ? "good" : r.roi >= 0.1 ? "warn" : "bad");
+          s.textContent = pct(r.roi);
+          td.appendChild(s);
+        } else if (c.k === "sell") {
+          td.textContent = isk(r.sell);
+          if (r.est) { const e = document.createElement("span"); e.className = "est"; e.textContent = "EST"; td.appendChild(e); }
+        } else {
+          td.textContent = c.f(r[c.k]);
+          if (c.k === "totalProfit") td.className = r.totalProfit >= 0 ? "pos" : "neg";
+          if (c.k === "daysLeft" && r.daysLeft < 3) td.className = "neg";
+        }
+        row.appendChild(td);
+      });
+      frag.appendChild(row);
+    });
+    tb.appendChild(frag);
+  }
+
+  async function copyMultibuy() {
+    const text = docResults.map((r) => `${r.name}\t${r.qty}`).join("\n");
+    const btn = $("docMulti");
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = "Copied!";
+      status(`Copied ${docResults.length} lines. In Jita, open the market's Multibuy window and paste.`, "ok");
+    } catch {
+      btn.textContent = "Couldn't copy";
+    }
+    setTimeout(() => (btn.textContent = "Copy for Multibuy"), 1500);
+  }
+
+  function downloadDocCsv() {
+    const head = ["type_id", "Item", "Type", "Days left", "Short by", "Jita cost", "Hub sell", "Hub price estimated", "Return", "Buy qty", "ISK", "m3", "Profit"];
+    const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+    const lines = [head.join(",")];
+    docResults.forEach((r) => {
+      lines.push([r.typeId, q(r.name), q(r.cls), isFinite(r.daysLeft) ? r.daysLeft.toFixed(2) : "", r.need,
+        Math.round(r.cost), Math.round(r.sell), r.est ? "yes" : "no", r.roi.toFixed(4), r.qty,
+        Math.round(r.totalSpend), r.totalM3.toFixed(2), Math.round(r.totalProfit)].join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `doctrine-buy-list-${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  async function loadSheetUrl() {
+    const url = $("docUrl").value.trim();
+    if (!url) { status("Paste the Google Sheets link first.", "err"); return; }
+    store.set("docUrl", url);
+    status("Loading the sheet…", "busy");
+    try {
+      const r = await fetch("/api/sheet?url=" + encodeURIComponent(url));
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || "Couldn't load the sheet (" + r.status + ")."); }
+      setDoctrine(await r.text(), "Google Sheet");
+    } catch (e) { status(e.message, "err"); }
+  }
+
+  function setTab(which) {
+    const doc = which === "doc";
+    $("tabDoc").setAttribute("aria-pressed", String(doc));
+    $("tabScan").setAttribute("aria-pressed", String(!doc));
+    $("docPanel").classList.toggle("hidden", !doc);
+    $("docResults").classList.toggle("hidden", !doc || !docResults.length);
+    $("scanPanel").classList.toggle("hidden", doc);
+    $("resultsPanel").classList.toggle("hidden", doc || !results.length);
+    store.set("tab", which);
   }
 
   // ---------- table ----------
@@ -467,10 +783,10 @@
       const el = $(k);
       el.value = settings[k];
       el.addEventListener("change", () => {
-        settings[k] = el.tagName === "SELECT" ? el.value : (parseFloat(el.value) || 0);
+        settings[k] = TEXT_SETTINGS.has(k) ? el.value : (parseFloat(el.value) || 0);
         store.set("settings", settings);
         feeLine();
-        if (results.length) status("Settings changed. Scan again to update the list.", "");
+        if (results.length || docResults.length) status("Settings changed. Run the list again to update it.", "");
       });
     });
     feeLine();
@@ -498,6 +814,7 @@
       $("hubMeta").textContent = `${hub.system} · ${hub.region} · ID ${hub.id}`;
     }
     $("scan").disabled = !hub || !loggedIn;
+    renderDocButtons();
   }
 
   function wire() {
@@ -530,12 +847,34 @@
     });
     $("scan").addEventListener("click", scan);
     $("csv").addEventListener("click", downloadCsv);
+
+    $("tabDoc").addEventListener("click", () => setTab("doc"));
+    $("tabScan").addEventListener("click", () => setTab("scan"));
+    $("docFile").addEventListener("change", async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try { setDoctrine(await f.text(), f.name); } catch (err) { status(err.message, "err"); }
+    });
+    $("docUrlBtn").addEventListener("click", loadSheetUrl);
+    $("docRun").addEventListener("click", runDoctrine);
+    $("docMulti").addEventListener("click", copyMultibuy);
+    $("docCsv").addEventListener("click", downloadDocCsv);
+  }
+
+  function restoreDoctrine() {
+    $("docUrl").value = store.get("docUrl", "");
+    let text = null;
+    try { text = localStorage.getItem("doctrineCsv"); } catch {}
+    if (!text) return;
+    try { doctrine = parseDoctrine(text); showDocSource(store.get("doctrineSrc", null)); } catch { doctrine = null; }
   }
 
   // ---------- start ----------
   (async () => {
     wire();
     bindSettings();
+    restoreDoctrine();
+    setTab(store.get("tab", "doc"));
     try {
       await handleCallback();
     } catch (e) {

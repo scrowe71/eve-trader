@@ -71,6 +71,23 @@ The site holds no secrets, but you can keep other people off it. In the Cloudfla
 
 The list is sorted by **profit per day of volume**: profit per unit × average units traded per day in the hub's region. **Days of stock** shows how long the hub's current listings would last at that pace. Low numbers mean the item is running short.
 
+## Doctrine list
+
+The **Doctrine list** tab works from the Initiative Doctrine Stock Tracker instead of scanning everything in the hub.
+
+1. Load the tracker: upload its CSV export, or paste a Google Sheets link. A sheet link only works if the sheet is viewable without a Google login ("Anyone with the link" or "Publish to web").
+2. Pick **Days to cover** (30 matches the tracker's "Required" column) and which usage average to plan on.
+3. Leave **Include** on *Seeding items only* unless the alliance is fine with traders importing Industry items.
+4. Click **Build import list**.
+
+For each short item, the site works out **days × daily usage − hub stock**. It caps that at **Max ISK per item**, then fills the list best-first by total profit until **Total budget** or **Max cargo m³** runs out.
+
+If an item is sold out at the Keepstar, its hub price is estimated as your **sold-out markup** on the Jita cost and marked **EST**.
+
+**Copy for Multibuy** copies `Item<TAB>qty` lines you can paste into the Jita Multibuy window. **Download CSV** saves the list.
+
+The tracker is saved in your browser, so you only need to load it again when you want fresh numbers.
+
 ## Known limits
 
 - ESI caches structure markets for about 5 minutes, so scanning more often than that won't show anything new.
