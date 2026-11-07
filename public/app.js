@@ -625,7 +625,8 @@
         } else if (c.k === "cls") {
           const s = document.createElement("span");
           s.className = "cls" + (r.cls === "Seeding" ? " seed" : "");
-          s.textContent = r.kind ? `${r.cls || "?"} · ${r.kind}` : (r.cls || "?");
+          s.textContent = r.cls || "?";
+          if (r.kind) s.title = r.kind;
           td.appendChild(s);
         } else if (c.k === "hubListed") {
           if (r.est) {
