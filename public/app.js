@@ -3,6 +3,8 @@
 
   const CFG = window.APP_CONFIG || {};
   const ESI = "https://esi.evetech.net/latest";
+  const JITA_REGION = 10000002;   // The Forge
+  const JITA_STATION = 60003760;  // Jita IV - Moon 4 - Caldari Navy Assembly Plant
   const SSO_AUTHORIZE = "https://login.eveonline.com/v2/oauth/authorize/";
   const SCOPES = [
     "esi-markets.structure_markets.v1",
@@ -498,31 +500,76 @@
       await volumes(items.map((d) => d.typeId));
 
       const tax = salesTax(), bfH = hubBroker(), bfJ = jitaBroker();
-      const priced = [], skipped = { noJita: 0, lowRoi: 0, lowProfit: 0, slots: 0, budget: 0 };
+      const minRoi = settings.dMinRoi / 100;
+      const k = 1 - Math.min(100, Math.max(0, settings.haulDisc || 0)) / 100;   // hauling discount factor
+      const priced = [], skipped = { noJita: 0, lowRoi: 0, thin: 0, lowProfit: 0, slots: 0, budget: 0 };
+
+      // Pass 1: screen on Jita's best price.
+      const screened = [];
       for (const d of items) {
         const j = jita[d.typeId];
         const jSell = parseFloat(j && j.sell && j.sell.min) || 0;
         const jBuy = parseFloat(j && j.buy && j.buy.max) || 0;
-        let cost, buyFee = 0;
-        if (settings.buyHow === "order") { cost = jBuy; buyFee = bfJ * jBuy; } else cost = jSell;
-        if (!cost) { skipped.noJita++; continue; }
-
+        const best = settings.buyHow === "order" ? jBuy : jSell;
+        if (!best) { skipped.noJita++; continue; }
         const h = agg.get(d.typeId);
         const hubSell = h && h.sellMin < Infinity ? h.sellMin : null;
-        const sell = hubSell !== null ? hubSell : cost * settings.dMarkup / 100;
+        const sell = hubSell !== null ? hubSell : jSell * settings.dMarkup / 100 || best * settings.dMarkup / 100;
         const vol = volCache[d.typeId] || 0;
-        const haul = haulCost(vol, cost);
-        const unitSpend = cost + buyFee + haul;
-        const profit = sell * (1 - bfH - tax) - unitSpend;
-        const roi = unitSpend > 0 ? profit / unitSpend : 0;
-        if (roi < settings.dMinRoi / 100) { skipped.lowRoi++; continue; }
-        const capQty = settings.dItemCap > 0 ? Math.floor(settings.dItemCap / unitSpend) : d.need;
-        priced.push({
-          ...d, cost, sell, est: hubSell === null, hubListed: h ? h.sellQty : 0, hubSellers: h ? h.sellOrders : 0,
-          vol, unitSpend, profit, roi, qty: Math.min(d.need, capQty),
-        });
-        if (priced[priced.length - 1].qty * profit < settings.dMinProfit) { priced.pop(); skipped.lowProfit++; }
+        const buyFee = settings.buyHow === "order" ? bfJ * best : 0;
+        const spend = best + buyFee + haulCost(vol, best);
+        const profit = sell * (1 - bfH - tax) - spend;
+        if (spend <= 0 || profit / spend < minRoi) { skipped.lowRoi++; continue; }
+        screened.push({ d, h, hubSell, sell, vol, best });
       }
+
+      // Pass 2: walk Jita 4-4's real sell orders (buy-now mode) so big quantities
+      // are priced the way Multibuy prices them. Stop before any unit that would
+      // drop below the minimum return.
+      let doneBooks = 0;
+      await pool(screened, 8, async (c) => {
+        const { d, h, hubSell, sell, vol, best } = c;
+        const net = sell * (1 - bfH - tax);                     // ISK you keep per unit sold
+        const fixedHaul = k * settings.haulRate * vol;          // per-unit hauling that doesn't depend on price
+        const collRate = k * settings.coll / 100;               // per-unit collateral share of price
+        const cap = settings.dItemCap > 0 ? settings.dItemCap : Infinity;
+        let qty = 0, itemCost = 0, worst = best;
+
+        if (settings.buyHow === "order") {
+          const unit = best * (1 + bfJ) + fixedHaul + collRate * best;
+          qty = Math.min(d.need, Math.floor(cap / unit));
+          itemCost = qty * best * (1 + bfJ);
+        } else {
+          let book = [];
+          try {
+            const r = await esi(`/markets/${JITA_REGION}/orders/?order_type=sell&type_id=${d.typeId}`);
+            book = r.data.filter((o) => o.location_id === JITA_STATION).sort((a, b) => a.price - b.price);
+          } catch { book = []; }
+          const maxPrice = (net / (1 + minRoi) - fixedHaul) / (1 + collRate);
+          let spent = 0;
+          for (const o of book) {
+            if (qty >= d.need || o.price > maxPrice) break;
+            const unit = o.price * (1 + collRate) + fixedHaul;
+            let take = Math.min(o.volume_remain, d.need - qty);
+            if (spent + take * unit > cap) take = Math.floor((cap - spent) / unit);
+            if (take <= 0) break;
+            qty += take; itemCost += take * o.price; spent += take * unit; worst = o.price;
+          }
+        }
+        status(`Checking Jita order depth: ${++doneBooks} of ${screened.length}…`, "busy");
+        if (qty <= 0) { skipped.thin++; return; }
+
+        const cost = itemCost / qty;                               // average price paid per unit
+        const unitSpend = cost + fixedHaul + collRate * cost;
+        const profit = net - unitSpend;
+        const roi = profit / unitSpend;
+        if (qty * profit < settings.dMinProfit) { skipped.lowProfit++; return; }
+        priced.push({
+          ...d, cost, best, worst, sell, est: hubSell === null,
+          hubListed: h ? h.sellQty : 0, hubSellers: h ? h.sellOrders : 0,
+          vol, unitSpend, profit, roi, qty, short: qty < d.need,
+        });
+      });
 
       // Fill best-first by total profit until budget / cargo runs out.
       const soldFirst = settings.dPriority === "soldout";
@@ -554,6 +601,7 @@
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
+      if (skipped.thin) bits.push(`${skipped.thin} have no Jita 4-4 sell orders cheap enough to clear ${settings.dMinRoi}%`);
       if (skipped.lowProfit) bits.push(`${skipped.lowProfit} would make under ${isk(settings.dMinProfit)} in total`);
       if (skipped.slots) bits.push(`${skipped.slots} more were cut because you have ${maxItems} free order slots`);
       if (skipped.budget) bits.push(`${skipped.budget} didn't fit the budget or cargo`);
@@ -594,7 +642,7 @@
     { k: "demand", label: "Sells / day", f: (v) => (v >= 100 ? intf(v) : v.toFixed(1)) },
     { k: "daysLeft", label: "Days left", f: (v) => (isFinite(v) ? v.toFixed(1) : "–") },
     { k: "need", label: "Short by", f: intf },
-    { k: "cost", label: "Jita cost", f: isk },
+    { k: "cost", label: "Jita avg cost", f: isk },
     { k: "sell", label: "Hub sell", f: isk },
     { k: "roi", label: "Return", f: pct },
     { k: "qty", label: "Buy", f: intf },
@@ -667,6 +715,8 @@
           td.textContent = c.f(r[c.k]);
           if (c.k === "totalProfit") td.className = r.totalProfit >= 0 ? "pos" : "neg";
           if (c.k === "daysLeft" && r.daysLeft < 3) td.className = "neg";
+          if (c.k === "cost") td.title = `Average over the orders you'd buy. Cheapest ${isk(r.best)}, most expensive ${isk(r.worst)}.`;
+          if (c.k === "qty" && r.short) { td.title = `Short by ${intf(r.need)}, but only ${intf(r.qty)} are cheap enough in Jita (or your per-item cap stopped it).`; td.className = "warnc"; }
           if (c.k === "demand") td.title = `7-day avg ${r.a7.toFixed(1)} / day · 30-day avg ${r.a30.toFixed(1)} / day`;
         }
         row.appendChild(td);
