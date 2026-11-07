@@ -268,6 +268,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Items over the spike limit
             <select id="dSpikeAct"><option value="skip">Leave them out</option><option value="flag">Keep, but flag them</option></select>
           </label>
+          <label class="full" style="grid-column:1/-1">Don't import (item categories or groups, comma-separated)<input id="dExclude" type="text"></label>
           <label>Minimum profit per item (total)<input id="dMinProfit" type="number" step="500000" min="0"></label>
           <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
           <label>Fill slots with
@@ -574,8 +575,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.16.1"></script>
-<script src="config.js?v=2.16.1"></script>
-<script src="app.js?v=2.16.1"></script>
+<script src="version.js?v=2.17.0"></script>
+<script src="config.js?v=2.17.0"></script>
+<script src="app.js?v=2.17.0"></script>
 </body>
 </html>

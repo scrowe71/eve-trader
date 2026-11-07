@@ -96,6 +96,10 @@ On the Doctrine list, set **Fill slots with** to **Restock what sold since last 
 
 The Trade journal shows your trading wallet division's balance, plus your stock at cost, split into: listed at the hub, in transit on courier contracts, and not listed yet.
 
+### Don't import
+
+Items in the categories or groups listed under **Don't import** are left out of the Doctrine list. The default is `Material, Asteroid, Planetary Commodities, Planetary Resources`, which covers minerals, moon materials such as hydrocarbons, ice products, fuel blocks, ore, ice and PI. A name matches an EVE category exactly, or any part of a group name.
+
 ### Jita spike check
 
 Before building the buy list, each item's Jita price is compared with its 30-day Jita average. Items more than the **spike limit** above it (default 15%) are left out by default, so you don't restock right after a price jump. You can switch it to **keep but flag**, which shows an orange +N% chip on the Jita cost.

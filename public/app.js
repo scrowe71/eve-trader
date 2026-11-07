@@ -50,10 +50,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -302,17 +302,34 @@
   // Item group names (e.g. "Frequency Crystal"), cached in the browser.
   const groupOfType = store.get("groupOfType", {});   // type_id -> group_id
   const groupName = store.get("groupName", {});       // group_id -> name
+  const catOfGroup = store.get("catOfGroup", {});     // group_id -> category_id
+  const catName = store.get("catName", {});           // category_id -> name
+  // True when the item's category or group name matches one of the comma-separated names.
+  function inGroups(typeId, list) {
+    const names = String(list || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+    if (!names.length) return false;
+    const g = (groupName[groupOfType[typeId]] || "").toLowerCase();
+    const c = (catName[catOfGroup[groupOfType[typeId]]] || "").toLowerCase();
+    return names.some((n) => n === c || g.includes(n));
+  }
   async function groups(ids) {
     const needT = ids.filter((id) => groupOfType[id] === undefined);
     await pool(needT, 10, async (id) => {
       try { groupOfType[id] = (await esi(`/universe/types/${id}/`)).data.group_id; } catch { groupOfType[id] = 0; }
     });
-    const needG = [...new Set(ids.map((id) => groupOfType[id]).filter((g) => g && groupName[g] === undefined))];
+    const needG = [...new Set(ids.map((id) => groupOfType[id]).filter((g) => g && (groupName[g] === undefined || catOfGroup[g] === undefined)))];
     await pool(needG, 10, async (g) => {
-      try { groupName[g] = (await esi(`/universe/groups/${g}/`)).data.name; } catch { groupName[g] = ""; }
+      try { const d = (await esi(`/universe/groups/${g}/`)).data; groupName[g] = d.name; catOfGroup[g] = d.category_id; }
+      catch { groupName[g] = groupName[g] || ""; catOfGroup[g] = 0; }
+    });
+    const needC = [...new Set(ids.map((id) => catOfGroup[groupOfType[id]]).filter((c) => c && catName[c] === undefined))];
+    await pool(needC, 5, async (c) => {
+      try { catName[c] = (await esi(`/universe/categories/${c}/`)).data.name; } catch { catName[c] = ""; }
     });
     store.set("groupOfType", groupOfType);
     store.set("groupName", groupName);
+    store.set("catOfGroup", catOfGroup);
+    store.set("catName", catName);
   }
 
   async function volumes(ids) {
@@ -674,7 +691,16 @@
         items.push({ typeId, name: "", stock: 0, a7: 0, a30: 0, alert: "", cls: "Restock", kind: "", demand: 0, need: sold, sold, daysLeft: Infinity });
       });
 
-      if (!items.length) { status("Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
+      // Leave out item categories/groups you don't import (minerals, ore, ice, PI…).
+      let excludedCount = 0;
+      if (String(settings.dExclude || "").trim() && items.length) {
+        status("Checking item categories…", "busy");
+        await groups(items.map((d) => d.typeId));
+        const before = items.length;
+        items = items.filter((d) => !inGroups(d.typeId, settings.dExclude));
+        excludedCount = before - items.length;
+      }
+      if (!items.length) { status(excludedCount ? `Everything short was in a category you don't import (${excludedCount} items).` : "Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
 
       const agg = await loadHubAgg();
       status(`${intf(items.length)} tracker items are short. Pulling Jita prices…`, "busy");
@@ -804,6 +830,7 @@
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
+      if (excludedCount) bits.push(`${excludedCount} are in categories you don't import (${settings.dExclude})`);
       if (skipped.spike) bits.push(`${skipped.spike} skipped because Jita is more than ${settings.dSpike}% above its 30-day average right now (${spikeNames.slice(0, 6).join(", ")}${spikeNames.length > 6 ? "…" : ""})`);
       if (skipped.thin) bits.push(`${skipped.thin} have no Jita 4-4 sell orders cheap enough to clear ${settings.dMinRoi}%`);
       if (skipped.lowProfit) bits.push(`${skipped.lowProfit} would make under ${isk(settings.dMinProfit)} in total`);
