@@ -50,10 +50,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip",
+    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dBudgetMode: "wallet", dReserve: 5,
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["lBbExclude", "dSpikeAct", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -470,6 +470,21 @@
     }
   }
 
+  // ---------- trading wallet balance ----------
+  async function walletBalance() {
+    const div = Math.min(7, Math.max(1, Math.round(settings.jCorpDiv || 1)));
+    const cid = settings.jCorpChar && chars[settings.jCorpChar] ? settings.jCorpChar
+      : (Object.values(chars).find((c) => hasWallet(c)) || {}).charId;
+    if (!cid || !hasWallet(chars[cid])) return null;
+    if (settings.jCorpWallet !== "on") {
+      try { return { isk: (await esi(`/characters/${cid}/wallet/`, { auth: true, charId: cid })).data, where: chars[cid].name + "'s wallet" }; } catch { return null; }
+    }
+    const corpId = (await esi(`/characters/${cid}/`)).data.corporation_id;
+    const w = (await esi(`/corporations/${corpId}/wallets/`, { auth: true, charId: cid })).data;
+    const d = w.find((x) => x.division === div);
+    return d ? { isk: d.balance, where: `corp wallet division ${div}` } : null;
+  }
+
   // ---------- skills + open orders from the game ----------
   const SKILL_IDS = { trade: 3443, retail: 3444, wholesale: 16596, tycoon: 18580, acc: 16622, br: 3446, abr: 16597 };
   function traderChar() {
@@ -612,6 +627,18 @@
     try {
       status("Reading your skills and open orders…", "busy");
       await syncFromGame(true);
+      let budget = settings.dBudget, budgetNote = "";
+      if (settings.dBudgetMode === "wallet") {
+        try {
+          const wb = await walletBalance();
+          if (wb) {
+            budget = Math.max(0, wb.isk * (1 - (settings.dReserve || 0) / 100) - (settings.haulExpress || 0));
+            budgetNote = `Budget ${isk(budget)}: ${wb.where} holds ${isk(wb.isk)}, minus ${settings.dReserve}% kept for listing fees` + (settings.haulExpress ? ` and the ${isk(settings.haulExpress)} express fee` : "") + ". ";
+          } else budgetNote = `Couldn't read your wallet, so the fixed budget of ${isk(budget)} was used. `;
+        } catch (e) {
+          budgetNote = e.status === 403 ? "Wallet balance needs the Accountant role; the fixed budget was used. " : `Wallet balance: ${e.message}; the fixed budget was used. `;
+        }
+      }
       const pick = settings.dDemand;
       // Restock mode: what sold at the hub since your last haul goes first, at least as many as sold.
       const restock = new Map();
@@ -750,7 +777,7 @@
         (restockFirst && !!a.sold !== !!b.sold ? (a.sold ? -1 : 1) : 0) ||
         (soldFirst && a.est !== b.est ? (a.est ? -1 : 1) : 0) ||
         (b.profit * b.qty - a.profit * a.qty));
-      let budgetLeft = settings.dBudget > 0 ? settings.dBudget : Infinity;
+      let budgetLeft = budget > 0 ? budget : Infinity;
       let cargoLeft = settings.dCargo > 0 ? settings.dCargo : Infinity;
       const maxItems = freeSlots();
       docResults = [];
@@ -786,7 +813,7 @@
       $("docResults").classList.remove("hidden");
       docSort = { key: "rank", dir: 1 };
       drawDocTable();
-      status(restockNote + (docResults.length
+      status(budgetNote + restockNote + (docResults.length
         ? `Buy list ready: ${docResults.length} items, ${isk(sum("totalSpend"))} to spend, about ${isk(sum("totalProfit"))} profit.`
         : "No short items cleared your minimum return. Try a lower minimum or a higher sold-out markup."), "ok");
     } catch (e) {
