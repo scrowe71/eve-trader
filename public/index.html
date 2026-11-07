@@ -98,6 +98,7 @@ td.pay { color: var(--accent); font-weight: 500; }
 .hidden { display: none !important; }
 .login-hero { display: grid; gap: 10px; max-width: 60ch; }
 footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
+.ver { margin: 10px 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -284,8 +285,10 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
 
   <footer>
     Hub orders come from ESI using your login. Jita prices come from Fuzzwork's market aggregates for Jita IV - Moon 4. Fees: sales tax = 7.5% × (1 − 0.11 × Accounting); NPC broker fee = 3% − 0.3% × Broker Relations − 0.03% × faction standing − 0.02% × corp standing, minimum 1%.
+    <p class="ver" id="ver"></p>
   </footer>
 </div>
+<script src="version.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>

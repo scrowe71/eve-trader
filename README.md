@@ -94,3 +94,7 @@ The tracker is saved in your browser, so you only need to load it again when you
 - Daily volume comes from regional history, so it includes other markets in the same region.
 - Items the hub doesn't stock at all don't show up, because there's no hub price to compare. A "missing items" view can be added later.
 - Local testing with `npx wrangler pages dev public` runs at `http://localhost:8788/`. EVE apps allow one callback URL, so create a second EVE app with that callback for testing.
+
+## Version
+
+The version number lives in `public/version.js` and shows at the bottom of both pages. It goes up with every change pushed to `dev`, so you can tell at a glance whether the live site has the latest change.

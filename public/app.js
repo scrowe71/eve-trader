@@ -980,6 +980,8 @@
 
   // ---------- start ----------
   (async () => {
+    const V = window.APP_VERSION;
+    if (V) $("ver").textContent = `Import Finder v${V.number} · ${V.date}`;
     wire();
     bindSettings();
     restoreDoctrine();
