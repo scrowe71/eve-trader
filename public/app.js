@@ -23,9 +23,9 @@
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
     haulRate: 800, coll: 1, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 10,
-    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0,
+    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all",
   };
-  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses"]);
+  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   let token = store.get("token", null);
   let hub = store.get("hub", null);
@@ -512,7 +512,7 @@
         if (roi < settings.dMinRoi / 100) { skipped.lowRoi++; continue; }
         const capQty = settings.dItemCap > 0 ? Math.floor(settings.dItemCap / unitSpend) : d.need;
         priced.push({
-          ...d, cost, sell, est: hubSell === null, hubListed: h ? h.sellQty : 0,
+          ...d, cost, sell, est: hubSell === null, hubListed: h ? h.sellQty : 0, hubSellers: h ? h.sellOrders : 0,
           vol, unitSpend, profit, roi, qty: Math.min(d.need, capQty),
         });
       }
@@ -539,10 +539,6 @@
       docResults.forEach((r) => { if (!r.name) r.name = nameCache[r.typeId] || "Type " + r.typeId; });
 
       const sum = (k) => docResults.reduce((a, r) => a + r[k], 0);
-      $("dItems").textContent = intf(docResults.length);
-      $("dSpend").textContent = isk(sum("totalSpend"));
-      $("dM3").textContent = intf(sum("totalM3")) + " m³";
-      $("dProfit").textContent = isk(sum("totalProfit"));
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
@@ -561,9 +557,25 @@
     }
   }
 
+  const visibleDocRows = () => (settings.dShow === "soldout" ? docResults.filter((r) => r.est) : docResults);
+
+  function docSummary() {
+    const rows = visibleDocRows();
+    const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
+    $("dItems").textContent = intf(rows.length);
+    $("dSpend").textContent = isk(sum("totalSpend"));
+    $("dM3").textContent = intf(sum("totalM3")) + " m³";
+    $("dProfit").textContent = isk(sum("totalProfit"));
+    const so = docResults.filter((r) => r.est);
+    $("dSoldOut").textContent = so.length
+      ? `${so.length} item${so.length === 1 ? " is" : "s are"} sold out at the Keepstar, so you'd be the only seller (${isk(so.reduce((a, r) => a + r.totalProfit, 0))} of the expected profit).`
+      : "Nothing on this list is sold out at the Keepstar.";
+  }
+
   const DOC_COLS = [
     { k: "name", label: "Item" },
     { k: "cls", label: "Type" },
+    { k: "hubListed", label: "Hub listings" },
     { k: "daysLeft", label: "Days left", f: (v) => (isFinite(v) ? v.toFixed(1) : "–") },
     { k: "need", label: "Short by", f: intf },
     { k: "cost", label: "Jita cost", f: isk },
@@ -585,7 +597,7 @@
       if (c.k === docSort.key) th.setAttribute("aria-sort", docSort.dir < 0 ? "descending" : "ascending");
       const go = () => {
         if (docSort.key === c.k) docSort.dir = -docSort.dir;
-        else docSort = { key: c.k, dir: c.k === "name" || c.k === "cls" || c.k === "daysLeft" ? 1 : -1 };
+        else docSort = { key: c.k, dir: ["name", "cls", "daysLeft", "hubListed"].includes(c.k) ? 1 : -1 };
         drawDocTable();
       };
       th.addEventListener("click", go);
@@ -593,8 +605,9 @@
       tr.appendChild(th);
     });
 
+    docSummary();
     const { key, dir } = docSort;
-    const rows = [...docResults].sort((a, b) => {
+    const rows = [...visibleDocRows()].sort((a, b) => {
       const x = a[key], y = b[key];
       if (typeof x === "string") return dir * x.localeCompare(y);
       return dir * ((isFinite(x) ? x : 1e18) - (isFinite(y) ? y : 1e18));
@@ -614,6 +627,17 @@
           s.className = "cls" + (r.cls === "Seeding" ? " seed" : "");
           s.textContent = r.kind ? `${r.cls || "?"} · ${r.kind}` : (r.cls || "?");
           td.appendChild(s);
+        } else if (c.k === "hubListed") {
+          if (r.est) {
+            const s = document.createElement("span");
+            s.className = "chip good";
+            s.textContent = "SOLD OUT";
+            s.title = "No sell orders at the Keepstar. You'd be the only seller.";
+            td.appendChild(s);
+          } else {
+            td.textContent = `${intf(r.hubListed)} (${r.hubSellers} seller${r.hubSellers === 1 ? "" : "s"})`;
+            if (r.hubSellers <= 2) td.className = "pos";
+          }
         } else if (c.k === "roi") {
           const s = document.createElement("span");
           s.className = "chip " + (r.roi >= 0.2 ? "good" : r.roi >= 0.1 ? "warn" : "bad");
@@ -635,7 +659,7 @@
   }
 
   async function copyMultibuy() {
-    const text = docResults.map((r) => `${r.name}\t${r.qty}`).join("\n");
+    const text = visibleDocRows().map((r) => `${r.name}\t${r.qty}`).join("\n");
     const btn = $("docMulti");
     try {
       await navigator.clipboard.writeText(text);
@@ -648,11 +672,11 @@
   }
 
   function downloadDocCsv() {
-    const head = ["type_id", "Item", "Type", "Days left", "Short by", "Jita cost", "Hub sell", "Hub price estimated", "Return", "Buy qty", "ISK", "m3", "Profit"];
+    const head = ["type_id", "Item", "Type", "Hub units listed", "Hub sellers", "Days left", "Short by", "Jita cost", "Hub sell", "Hub price estimated", "Return", "Buy qty", "ISK", "m3", "Profit"];
     const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
     const lines = [head.join(",")];
-    docResults.forEach((r) => {
-      lines.push([r.typeId, q(r.name), q(r.cls), isFinite(r.daysLeft) ? r.daysLeft.toFixed(2) : "", r.need,
+    visibleDocRows().forEach((r) => {
+      lines.push([r.typeId, q(r.name), q(r.cls), r.hubListed, r.hubSellers, isFinite(r.daysLeft) ? r.daysLeft.toFixed(2) : "", r.need,
         Math.round(r.cost), Math.round(r.sell), r.est ? "yes" : "no", r.roi.toFixed(4), r.qty,
         Math.round(r.totalSpend), r.totalM3.toFixed(2), Math.round(r.totalProfit)].join(","));
     });
@@ -786,6 +810,7 @@
         settings[k] = TEXT_SETTINGS.has(k) ? el.value : (parseFloat(el.value) || 0);
         store.set("settings", settings);
         feeLine();
+        if (k === "dShow") { if (docResults.length) drawDocTable(); return; }
         if (results.length || docResults.length) status("Settings changed. Run the list again to update it.", "");
       });
     });

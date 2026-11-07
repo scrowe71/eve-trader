@@ -90,6 +90,7 @@ td:first-child { font-family: var(--body); white-space: normal; min-width: 180px
 .est { font: 600 10px var(--body); color: var(--warn); margin-left: 4px; }
 .cls { font: 600 11px var(--body); padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
 .cls.seed { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.callout-line { margin: 0; font-size: 14px; padding: 8px 12px; background: var(--bg); border-left: 3px solid var(--good); border-radius: 0 4px 4px 0; }
 .hidden { display: none !important; }
 .login-hero { display: grid; gap: 10px; max-width: 60ch; }
 footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
@@ -201,6 +202,9 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Max ISK per item<input id="dItemCap" type="number" step="10000000" min="0"></label>
           <label>Total budget<input id="dBudget" type="number" step="100000000" min="0"></label>
           <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
+          <label>Show
+            <select id="dShow"><option value="all">All items</option><option value="soldout">Sold out at hub only</option></select>
+          </label>
         </div>
         <div class="row">
           <button type="button" class="primary" id="docRun" disabled>Build import list</button>
@@ -217,6 +221,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <div class="tile"><span class="k">Cargo</span><span class="v" id="dM3">–</span></div>
           <div class="tile"><span class="k">Expected profit</span><span class="v" id="dProfit">–</span></div>
         </div>
+        <p class="callout-line" id="dSoldOut"></p>
         <p class="hint">Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget or cargo runs out. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar, so the sell price is your sold-out markup on the Jita cost. Profit assumes everything sells at today's hub price.</p>
         <div class="tablewrap">
           <table>
