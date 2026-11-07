@@ -297,7 +297,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <div class="tile"><span class="k">Expected profit</span><span class="v" id="dProfit">–</span></div>
         </div>
         <p class="callout-line" id="dSoldOut"></p>
-        <p class="hint">With "Restock what sold since last haul", everything you sold at the hub since your last Jita courier contract goes first, at least as many as you sold (marked SOLD), including items not on the tracker; then sold-out items, then the rest. With "Sold-out items first", items nobody is selling at the Keepstar get your order slots and budget before anything else; the # column shows that order. "Sold / day" is the tracker's average daily sales for the usage you picked (hover it to see both the 7-day and 30-day figures). Jita prices come from the real Jita 4-4 sell orders, cheapest first, so "Jita avg cost" matches what Multibuy will charge; buying stops before any order that would drop the item under your minimum return (yellow quantities were cut short for that reason or by your per-item cap). "Pay at most" is the highest average price per unit to accept in Multibuy (its middle column): the expected price plus your allowance, but never above the price where the item drops under your minimum return. If Multibuy shows more, lower the quantity or drop the item. Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget, cargo or your free order slots run out. Lines making less than your minimum profit in total are left out. The express fee is charged once per contract (one per 350,000 m³) and comes off the totals, not off each item. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar, so the sell price is your sold-out markup on the Jita cost. Profit assumes everything sells at today's hub price.</p>
+        <p class="hint">With "Restock what sold since last haul", everything you sold at the hub since your last Jita courier contract goes first, at least as many as you sold (marked SOLD), including items not on the tracker; then sold-out items, then the rest. With "Sold-out items first", items nobody is selling at the Keepstar get your order slots and budget before anything else; the # column shows that order. "Sold / day" is the tracker's average daily sales for the usage you picked (hover it to see both the 7-day and 30-day figures). Jita prices come from the real Jita 4-4 sell orders, cheapest first, so "Jita avg cost" matches what Multibuy will charge; buying stops before any order that would drop the item under your minimum return (yellow quantities were cut short for that reason or by your per-item cap). "Pay at most" is the highest average price per unit to accept in Multibuy (its middle column): the expected price plus your allowance, but never above the price where the item drops under your minimum return. If Multibuy shows more, lower the quantity or drop the item. Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget, cargo or your free order slots run out. Lines making less than your minimum profit in total are left out. The express fee is charged once per contract (one per 350,000 m³) and comes off the totals, not off each item. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar: the sell price is the 30-day average of what it actually sold for in the hub's region, or your sold-out markup on the Jita cost, whichever is lower. Profit assumes everything sells at today's hub price.</p>
         <div class="tablewrap">
           <table>
             <thead><tr id="dThead"></tr></thead>
@@ -575,8 +575,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.17.0"></script>
-<script src="config.js?v=2.17.0"></script>
-<script src="app.js?v=2.17.0"></script>
+<script src="version.js?v=2.17.1"></script>
+<script src="config.js?v=2.17.1"></script>
+<script src="app.js?v=2.17.1"></script>
 </body>
 </html>

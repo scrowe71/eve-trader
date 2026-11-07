@@ -538,6 +538,26 @@
     }
   }
 
+  // 30-day average price in the hub's region (what buyers there actually paid), cached for the day.
+  let regionHist = store.get("regionHist", { date: "", region: 0, data: {} });
+  async function regionAvg30(ids, regionId) {
+    if (regionHist.date !== today || regionHist.region !== regionId) regionHist = { date: today, region: regionId, data: {} };
+    const need = ids.filter((id) => regionHist.data[id] === undefined);
+    let done = 0;
+    await pool(need, 10, async (id) => {
+      try {
+        const h = (await esi(`/markets/${regionId}/history/?type_id=${id}`)).data;
+        const cut = Date.now() - 30 * 86400000;
+        const rec = h.filter((x) => Date.parse(x.date) >= cut);
+        const vol = rec.reduce((a, x) => a + x.volume, 0);
+        regionHist.data[id] = vol ? rec.reduce((a, x) => a + x.average * x.volume, 0) / vol : 0;
+      } catch { regionHist.data[id] = 0; }
+      if (++done % 20 === 0) status(`Checking recent prices for sold-out items: ${done} of ${need.length}…`, "busy");
+    });
+    try { store.set("regionHist", regionHist); } catch {}
+    return regionHist.data;
+  }
+
   // 30-day average Jita (The Forge) price per item, cached for the day.
   let jitaHist = store.get("jitaHist", { date: "", data: {} });
   async function jitaAvg30(ids) {
@@ -712,6 +732,10 @@
       const k = 1 - Math.min(100, Math.max(0, settings.haulDisc || 0)) / 100;   // hauling discount factor
       const priced = [], skipped = { noJita: 0, lowRoi: 0, thin: 0, lowProfit: 0, slots: 0, budget: 0, spike: 0 }, spikeNames = [];
 
+      // Sold-out items: what they actually sold for in the hub's region over 30 days (caps the markup guess).
+      const soldOutIds = items.filter((d) => { const h = agg.get(d.typeId); return !(h && h.sellMin < Infinity); }).map((d) => d.typeId);
+      const hubAvg = soldOutIds.length ? (status(`Checking recent prices for ${soldOutIds.length} sold-out items…`, "busy"), await regionAvg30(soldOutIds, hub.regionId)) : {};
+
       // Pass 1: screen on Jita's best price.
       const screened = [];
       for (const d of items) {
@@ -722,13 +746,15 @@
         if (!best) { skipped.noJita++; continue; }
         const h = agg.get(d.typeId);
         const hubSell = h && h.sellMin < Infinity ? h.sellMin : null;
-        const sell = hubSell !== null ? hubSell : jSell * settings.dMarkup / 100 || best * settings.dMarkup / 100;
+        const guess = jSell * settings.dMarkup / 100 || best * settings.dMarkup / 100;
+        const hist = hubAvg[d.typeId] || 0;
+        const sell = hubSell !== null ? hubSell : (hist > 0 ? Math.min(guess, hist) : guess);
         const vol = volCache[d.typeId] || 0;
         const buyFee = settings.buyHow === "order" ? bfJ * best : 0;
         const spend = best + buyFee + haulCost(vol, best);
         const profit = sell * (1 - bfH - tax) - spend;
         if (spend <= 0 || profit / spend < minRoi) { skipped.lowRoi++; continue; }
-        screened.push({ d, h, hubSell, sell, vol, best });
+        screened.push({ d, h, hubSell, sell, vol, best, hist });
       }
 
       // Pass 2: walk Jita 4-4's real sell orders (buy-now mode) so big quantities
@@ -736,7 +762,7 @@
       // drop below the minimum return.
       let doneBooks = 0;
       await pool(screened, 8, async (c) => {
-        const { d, h, hubSell, sell, vol, best } = c;
+        const { d, h, hubSell, sell, vol, best, hist } = c;
         const net = sell * (1 - bfH - tax);                     // ISK you keep per unit sold
         const fixedHaul = k * settings.haulRate * vol;          // per-unit hauling that doesn't depend on price
         const collRate = k * settings.coll / 100;               // per-unit collateral share of price
@@ -777,7 +803,7 @@
         const roi = profit / unitSpend;
         if (qty * profit < settings.dMinProfit) { skipped.lowProfit++; return; }
         priced.push({
-          ...d, cost, best, worst, sell, est: hubSell === null, maxAvg, payMax,
+          ...d, cost, best, worst, sell, est: hubSell === null, hist, maxAvg, payMax,
           hubListed: h ? h.sellQty : 0, hubSellers: h ? h.sellOrders : 0,
           vol, unitSpend, profit, roi, qty, short: qty < d.need,
         });
@@ -957,7 +983,10 @@
           td.appendChild(s);
         } else if (c.k === "sell") {
           td.textContent = isk(r.sell);
-          if (r.est) { const e = document.createElement("span"); e.className = "est"; e.textContent = "EST"; td.appendChild(e); }
+          if (r.est) {
+            const e = document.createElement("span"); e.className = "est"; e.textContent = "EST"; td.appendChild(e);
+            td.title = r.hist ? `Sold out at the hub. Estimated from the 30-day ${hub.region} average (${isk(r.hist)}) or your ${settings.dMarkup}% markup, whichever is lower.` : `Sold out at the hub and no recent sales history: your ${settings.dMarkup}% markup on Jita.`;
+          }
         } else {
           td.textContent = c.f(r[c.k]);
           if (c.k === "totalProfit") td.className = r.totalProfit >= 0 ? "pos" : "neg";
