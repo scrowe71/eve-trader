@@ -101,6 +101,17 @@ When a haul lands, open the **Sell prices** tab and click **Price my stock**. It
 
 Prices follow EVE's 4-significant-figure rule. If you've already listed some items, the hub's lowest may be your own order.
 
+## Order check
+
+Check your orders as often as you like. **Order check** tells you which sell orders at the Keepstar are worth updating:
+
+- **Update:** cheaper units ahead of you would take longer than your threshold (default 1 day of sales) to clear. It shows the new price (click to copy), the update fee, and how much less you'd get.
+- **Leave it:** you're already the lowest, the cheaper units ahead will sell soon anyway, or the undercut is tiny (default under 1%).
+- **Hold:** matching would go below your minimum price (your Jita cost plus hauling, at your minimum return).
+- **Wait:** changed less than 5 minutes ago, so EVE won't allow another update yet.
+
+It reads open orders with the characters on the Trade journal tab. They now also ask for `esi-markets.read_character_orders.v1` and `esi-markets.read_corporation_orders.v1`, so add those to your EVE app and click **Allow order access** next to each character. Corp orders need the **Accountant** or **Trader** role.
+
 ## Trade journal
 
 The **Trade journal** tab reads your real buys, sales, sales tax and broker fees from your wallets and shows what each item actually made.

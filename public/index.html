@@ -91,7 +91,10 @@ td:first-child { font-family: var(--body); white-space: normal; min-width: 150px
 .source { display: grid; gap: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 .warnc { color: var(--warn); }
 td.pay { color: var(--accent); font-weight: 500; }
-#docResults table, #jResults table, #sResults table { font-size: 12.5px; }
+#docResults table, #jResults table, #sResults table, #oResults table { font-size: 12.5px; }
+#oResults th, #oResults td { padding: 6px 5px; }
+#oResults th.name, #oResults td.name { text-align: left; white-space: normal; min-width: 140px; max-width: 230px; font-family: var(--body); }
+#oResults td.note { max-width: 340px; color: var(--muted); font-size: 12px; }
 #sResults th, #sResults td { padding: 6px 5px; }
 #sResults th.name, #sResults td.name { text-align: left; white-space: normal; min-width: 140px; max-width: 230px; font-family: var(--body); }
 #sResults td.note { max-width: 320px; color: var(--muted); font-size: 12px; }
@@ -208,6 +211,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <button type="button" id="tabDoc" aria-pressed="true">Doctrine list</button>
         <button type="button" id="tabScan" aria-pressed="false">Hub scan</button>
         <button type="button" id="tabSell" aria-pressed="false">Sell prices</button>
+        <button type="button" id="tabOrders" aria-pressed="false">Order check</button>
         <button type="button" id="tabJournal" aria-pressed="false">Trade journal</button>
       </div>
 
@@ -310,6 +314,33 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <tbody id="sTbody"></tbody>
           </table>
         </div>
+      </section>
+
+      <section class="panel hidden" id="oPanel" aria-labelledby="hO">
+        <h2 id="hO">Order check</h2>
+        <p class="hint">Check as often as you like. This tells you which of your sell orders at the Keepstar are actually worth updating, and which to leave alone because the fee isn't worth it. It reads your corp's and characters' open orders using the characters on the Trade journal tab (they need order access; the corp needs the Accountant or Trader role).</p>
+        <div class="fields">
+          <label>Leave it if the cheaper units ahead of you would sell within (days)<input id="oAheadDays" type="number" min="0" step="0.5"></label>
+          <label>Ignore undercuts smaller than (%)<input id="oMinGap" type="number" min="0" step="0.5"></label>
+        </div>
+        <div class="row"><button type="button" class="primary" id="oRun">Check my orders</button></div>
+      </section>
+
+      <section class="panel hidden" id="oResults" aria-labelledby="hORes">
+        <h2 id="hORes">Your sell orders</h2>
+        <div class="summary">
+          <div class="tile"><span class="k">Orders checked</span><span class="v" id="oCount">–</span></div>
+          <div class="tile"><span class="k">Worth updating</span><span class="v" id="oUp">–</span></div>
+          <div class="tile"><span class="k">Leave alone</span><span class="v" id="oLeave">–</span></div>
+          <div class="tile"><span class="k">Fees if you update those</span><span class="v" id="oFee">–</span></div>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th class="name">Item</th><th>Verdict</th><th>Left / total</th><th>Your price</th><th>Lowest other (sellers)</th><th>Cheaper units ahead</th><th>New price</th><th>Update fee</th><th>Your min</th><th class="name">Why</th></tr></thead>
+            <tbody id="oTbody"></tbody>
+          </table>
+        </div>
+        <p class="hint">Update fee = (1 − (50% + 6% × Advanced Broker Relations)) × hub broker fee × new order value. "Your min" comes from your Jita cost in the journal and your minimum return; it's blank if the item's purchase isn't in the wallet history. Days of sales use the doctrine tracker if loaded, otherwise regional history.</p>
       </section>
 
       <section class="panel hidden" id="jPanel" aria-labelledby="hJ">

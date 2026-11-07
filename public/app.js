@@ -27,6 +27,8 @@
   const WALLET_SCOPES = [
     "esi-wallet.read_character_wallet.v1",
     "esi-wallet.read_corporation_wallets.v1",
+    "esi-markets.read_character_orders.v1",      // Order check
+    "esi-markets.read_corporation_orders.v1",
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -44,6 +46,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
+    oAheadDays: 1, oMinGap: 1,
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -163,6 +166,7 @@
   }
 
   const hasWallet = (c) => !!(c && c.scopes && c.scopes.includes("esi-wallet.read_character_wallet.v1"));
+  const hasOrders = (c) => !!(c && c.scopes && c.scopes.includes("esi-markets.read_character_orders.v1"));
 
   async function handleCallback() {
     const q = new URLSearchParams(location.search);
@@ -845,12 +849,16 @@
   }
 
   function setTab(which) {
-    if (!["doc", "scan", "journal", "sell"].includes(which)) which = "doc";
+    if (!["doc", "scan", "journal", "sell", "orders"].includes(which)) which = "doc";
     const doc = which === "doc", scanT = which === "scan", jr = which === "journal", sl = which === "sell";
     $("tabDoc").setAttribute("aria-pressed", String(doc));
     $("tabScan").setAttribute("aria-pressed", String(scanT));
     $("tabJournal").setAttribute("aria-pressed", String(jr));
     $("tabSell").setAttribute("aria-pressed", String(sl));
+    const oc = which === "orders";
+    $("tabOrders").setAttribute("aria-pressed", String(oc));
+    $("oPanel").classList.toggle("hidden", !oc);
+    $("oResults").classList.toggle("hidden", !oc || !oRows.length);
     $("sPanel").classList.toggle("hidden", !sl);
     $("sResults").classList.toggle("hidden", !sl || !sRows.length);
     $("docPanel").classList.toggle("hidden", !doc);
@@ -1068,10 +1076,10 @@
       nm.textContent = c.name + (token && token.charId === c.charId ? " (hub character)" : "");
       lab.append(cb, nm);
       row.append(img, lab);
-      if (!hasWallet(c)) {
+      if (!hasWallet(c) || !hasOrders(c)) {
         const b = document.createElement("button");
         b.type = "button";
-        b.textContent = "Allow wallet access";
+        b.textContent = hasWallet(c) ? "Allow order access" : "Allow wallet access";
         b.title = "Log this character in again with wallet permissions";
         b.addEventListener("click", () => login("journal"));
         row.appendChild(b);
@@ -1464,6 +1472,169 @@
     tb.appendChild(frag);
   }
 
+  // ---------- order check ----------
+  let oRows = [];
+
+  async function myOpenOrders() {
+    const mine = [], notes = [];
+    const who = Object.values(chars).filter((c) => hasOrders(c) && c.include !== false);
+    for (const c of who) {
+      try { mine.push(...(await esi(`/characters/${c.charId}/orders/`, { auth: true, charId: c.charId })).data); }
+      catch (e) { notes.push(`${c.name}'s orders: ${e.message}`); }
+    }
+    const cid = settings.jCorpChar && chars[settings.jCorpChar] ? settings.jCorpChar : (who[0] && who[0].charId);
+    if (cid && hasOrders(chars[cid])) {
+      try {
+        const corpId = (await esi(`/characters/${cid}/`)).data.corporation_id;
+        mine.push(...(await allPages(`/corporations/${corpId}/orders/`, cid)));
+      } catch (e) {
+        notes.push(e.status === 403 ? "Corp orders: the character needs the Accountant or Trader role." : "Corp orders: " + e.message);
+      }
+    }
+    const seen = new Set();
+    return { orders: mine.filter((o) => (seen.has(o.order_id) ? false : (seen.add(o.order_id), true))), notes, who };
+  }
+
+  // What an update costs: relist charge on the new order value (+ full fee on any increase).
+  function updateFee(oldPrice, newPrice, qty) {
+    const bf = hubBroker();
+    const rr = 1 - (0.5 + 0.06 * Math.min(5, Math.max(0, settings.abr)));
+    return Math.max(100, rr * bf * newPrice * qty + bf * Math.max(0, newPrice - oldPrice) * qty);
+  }
+
+  async function runOrders() {
+    if (!hub) { status("Pick your hub first.", "err"); return; }
+    $("oRun").disabled = true;
+    try {
+      status("Reading your open orders…", "busy");
+      const { orders, notes, who } = await myOpenOrders();
+      if (!who.length) throw new Error("Add a character on the Trade journal tab (Add a character) — it now also asks for order access. Characters added before need \"Allow wallet access\" again.");
+      const sells = orders.filter((o) => !o.is_buy_order && o.location_id === hub.id);
+      if (!sells.length) { oRows = []; drawOrders(); status("No open sell orders at the hub." + (notes.length ? " " + notes.join(" ") : ""), "ok"); return; }
+
+      status("Downloading hub orders…", "busy");
+      const book = await hubOrders(hub.id);
+      const myIds = new Set(orders.map((o) => o.order_id));
+
+      // Your cost per item (for the minimum price), from the journal's wallet data. Optional.
+      const cost = new Map();
+      try { await runJournal({ show: false }); jRows.forEach((r) => { if (r.avgBuy !== null) cost.set(r.typeId, r.avgBuy + r.haulUnit); }); } catch {}
+
+      const types = [...new Set(sells.map((o) => o.type_id))];
+      await names(types);
+      const tracker = new Map((doctrine || []).map((d) => [d.typeId, d]));
+      const needHist = types.filter((t) => !tracker.get(t));
+      if (needHist.length) await dailyVolumes(needHist, hub.regionId);
+
+      const keep = 1 - salesTax() - hubBroker();
+      const minRoi = settings.dMinRoi / 100;
+      const now = Date.now();
+      oRows = sells.map((o) => {
+        const others = book.filter((b) => b.type_id === o.type_id && !b.is_buy_order && !myIds.has(b.order_id));
+        const lowest = others.length ? Math.min(...others.map((b) => b.price)) : null;
+        const ahead = others.filter((b) => b.price < o.price).reduce((a, b) => a + b.volume_remain, 0);
+        const sellers = new Set(others.map((b) => b.order_id)).size;
+        const d = tracker.get(o.type_id);
+        const perDay = d ? (d.a30 || d.a7) : (histCache.data[o.type_id] || 0);
+        const aheadDays = perDay > 0 ? ahead / perDay : (ahead > 0 ? Infinity : 0);
+        const c = cost.get(o.type_id);
+        const minPrice = c ? ceilTick(c * (1 + minRoi) / keep) : null;
+        const minutesSince = (now - Date.parse(o.issued)) / 60000;
+        const r = {
+          orderId: o.order_id, typeId: o.type_id, name: nameCache[o.type_id] || "Type " + o.type_id,
+          remain: o.volume_remain, total: o.volume_total, price: o.price, lowest, sellers, ahead, perDay, aheadDays,
+          minPrice, target: null, fee: 0, drop: 0, verdict: "", why: "", kind: "",
+        };
+        if (lowest === null || o.price <= lowest) {
+          r.verdict = "Leave it"; r.kind = "good";
+          r.why = lowest === null ? "No other sellers. You're the only one." : "You're already the lowest.";
+          return r;
+        }
+        const target = floorTick(lowest - tick(lowest) * 0.5);
+        r.target = target;
+        r.fee = updateFee(o.price, target, o.volume_remain);
+        r.drop = (o.price - target) * o.volume_remain;
+        const gapPct = (o.price - lowest) / o.price * 100;
+        if (minPrice && target < minPrice) {
+          r.verdict = "Hold"; r.kind = "bad";
+          r.why = `Matching (${isk(target)}) is below your minimum of ${isk(minPrice)}. Let the cheaper ones sell first.`;
+        } else if (minutesSince < 5) {
+          r.verdict = "Wait"; r.kind = "warn";
+          r.why = "Changed less than 5 minutes ago. EVE won't allow another update yet.";
+        } else if (aheadDays <= settings.oAheadDays) {
+          r.verdict = "Leave it"; r.kind = "good";
+          r.why = isFinite(aheadDays)
+            ? `Only ${intf(ahead)} cheaper unit${ahead === 1 ? "" : "s"} ahead of you (~${aheadDays.toFixed(1)} day${aheadDays >= 1.05 ? "s" : ""} of sales). They'll sell first and then it's your turn. Not worth ${isk(r.fee)}.`
+            : `${intf(ahead)} cheaper units ahead, but no sales history to judge by.`;
+        } else if (gapPct < settings.oMinGap && aheadDays <= settings.oAheadDays * 3) {
+          r.verdict = "Leave it"; r.kind = "good";
+          r.why = `Undercut by only ${gapPct.toFixed(2)}%. Not worth ${isk(r.fee)} to chase.`;
+        } else {
+          r.verdict = "Update"; r.kind = "warn";
+          r.why = `${intf(ahead)} cheaper unit${ahead === 1 ? "" : "s"} ahead of you` +
+            (isFinite(aheadDays) ? ` (~${aheadDays.toFixed(1)} days of sales)` : "") +
+            `. Updating costs ${isk(r.fee)} in fees, plus ${isk(r.drop)} less if it all sells at the new price.`;
+        }
+        return r;
+      });
+      const order = { Update: 0, Hold: 1, Wait: 2, "Leave it": 3 };
+      oRows.sort((a, b) => order[a.verdict] - order[b.verdict] || a.name.localeCompare(b.name));
+      drawOrders();
+      $("oResults").classList.remove("hidden");
+      const up = oRows.filter((r) => r.verdict === "Update");
+      status(`${oRows.length} sell orders checked: ${up.length} worth updating (${isk(up.reduce((a, r) => a + r.fee, 0))} in fees), ${oRows.length - up.length} to leave alone.` + (notes.length ? " " + notes.join(" ") : ""), "ok");
+    } catch (e) {
+      scanError(e);
+    } finally {
+      $("oRun").disabled = false;
+    }
+  }
+
+  function drawOrders() {
+    const up = oRows.filter((r) => r.verdict === "Update");
+    $("oCount").textContent = intf(oRows.length);
+    $("oUp").textContent = intf(up.length);
+    $("oLeave").textContent = intf(oRows.length - up.length);
+    $("oFee").textContent = isk(up.reduce((a, r) => a + r.fee, 0));
+    const tb = $("oTbody");
+    tb.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    oRows.forEach((r) => {
+      const tr = document.createElement("tr");
+      const add = (text, cls) => { const td = document.createElement("td"); if (cls) td.className = cls; td.textContent = text; tr.appendChild(td); return td; };
+      add(r.name, "name");
+      const vd = document.createElement("td");
+      const chip = document.createElement("span");
+      chip.className = "chip " + (r.verdict === "Update" ? "warn" : r.verdict === "Hold" ? "bad" : r.verdict === "Wait" ? "warn" : "good");
+      chip.textContent = r.verdict;
+      vd.appendChild(chip);
+      tr.appendChild(vd);
+      add(`${intf(r.remain)} / ${intf(r.total)}`);
+      add(isk(r.price));
+      add(r.lowest === null ? "none" : `${isk(r.lowest)} (${r.sellers})`);
+      add(r.ahead ? `${intf(r.ahead)}${isFinite(r.aheadDays) ? " · " + r.aheadDays.toFixed(1) + "d" : ""}` : "0");
+      const nt = document.createElement("td");
+      nt.className = "pay";
+      if (r.verdict === "Update" && r.target) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "copy";
+        b.textContent = Math.round(r.target).toLocaleString("en-US");
+        b.title = "Copy this price";
+        b.addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(String(Math.round(r.target))); b.textContent = "Copied"; } catch { b.textContent = "Can't copy"; }
+          setTimeout(() => (b.textContent = Math.round(r.target).toLocaleString("en-US")), 1200);
+        });
+        nt.appendChild(b);
+      } else nt.textContent = "–";
+      tr.appendChild(nt);
+      add(r.verdict === "Update" ? isk(r.fee) : "–");
+      add(r.minPrice ? isk(r.minPrice) : "–");
+      add(r.why, "name note");
+      frag.appendChild(tr);
+    });
+    tb.appendChild(frag);
+  }
+
   const J_COLS = [
     { k: "name", label: "Item" },
     { k: "soldQty", label: "Sold", f: intf },
@@ -1690,6 +1861,8 @@
     $("tabDoc").addEventListener("click", () => setTab("doc"));
     $("tabJournal").addEventListener("click", () => setTab("journal"));
     $("tabSell").addEventListener("click", () => setTab("sell"));
+    $("tabOrders").addEventListener("click", () => setTab("orders"));
+    $("oRun").addEventListener("click", runOrders);
     $("sRun").addEventListener("click", runSell);
     $("jAdd").addEventListener("click", () => login("journal"));
     $("jRun").addEventListener("click", runJournal);
