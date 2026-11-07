@@ -1,3 +1,3 @@
 // Bumped with every change pushed to dev. Shown at the bottom of each page.
 // When bumping, also update the ?v= on the <script> tags in index.html and calculator.html.
-window.APP_VERSION = { number: "2.18.0", date: "2026-11-07" };
+window.APP_VERSION = { number: "2.19.0", date: "2026-11-07" };

@@ -50,7 +50,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -405,9 +405,9 @@
     const agg = new Map();
     for (const o of orders) {
       let a = agg.get(o.type_id);
-      if (!a) { a = { sellMin: Infinity, sellQty: 0, sellOrders: 0, buyMax: 0 }; agg.set(o.type_id, a); }
+      if (!a) { a = { sellMin: Infinity, sellQty: 0, sellOrders: 0, buyMax: 0, sellIds: [] }; agg.set(o.type_id, a); }
       if (o.is_buy_order) { if (o.price > a.buyMax) a.buyMax = o.price; }
-      else { a.sellQty += o.volume_remain; a.sellOrders++; if (o.price < a.sellMin) a.sellMin = o.price; }
+      else { a.sellQty += o.volume_remain; a.sellOrders++; a.sellIds.push(o.order_id); if (o.price < a.sellMin) a.sellMin = o.price; }
     }
     agg.orderCount = orders.length;
     return agg;
@@ -732,6 +732,22 @@
       if (!items.length) { status(excludedCount || slowCount ? `Nothing left after filters: ${slowCount} sell under ${settings.dMinDaily}/day, ${excludedCount} are in categories you don't import.` : "Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
 
       const agg = await loadHubAgg();
+
+      // Leave out items where others already have several sell orders up (your own orders don't count).
+      let crowdedCount = 0;
+      if (settings.dMaxSellers > 0) {
+        const myIds = new Set();
+        try { (await myOpenOrders()).orders.forEach((o) => myIds.add(o.order_id)); } catch {}
+        const before = items.length;
+        items = items.filter((d) => {
+          const h = agg.get(d.typeId);
+          const others = h ? h.sellIds.filter((id) => !myIds.has(id)).length : 0;
+          d.otherOrders = others;
+          return others < settings.dMaxSellers;
+        });
+        crowdedCount = before - items.length;
+        if (!items.length) { status(`Nothing left: ${crowdedCount} short items already have ${settings.dMaxSellers}+ other sell orders at the hub.`, "ok"); return; }
+      }
       status(`${intf(items.length)} tracker items are short. Pulling Jita prices…`, "busy");
       const jita = await loadJita(items.map((d) => d.typeId));
       await volumes(items.map((d) => d.typeId));
@@ -865,6 +881,7 @@
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
+      if (crowdedCount) bits.push(`${crowdedCount} already have ${settings.dMaxSellers} or more other sell orders at the hub`);
       if (slowCount) bits.push(`${slowCount} sell fewer than ${settings.dMinDaily} a day`);
       if (excludedCount) bits.push(`${excludedCount} are in categories you don't import (${settings.dExclude})`);
       if (skipped.spike) bits.push(`${skipped.spike} skipped because Jita is more than ${settings.dSpike}% above its 30-day average right now (${spikeNames.slice(0, 6).join(", ")}${spikeNames.length > 6 ? "…" : ""})`);
