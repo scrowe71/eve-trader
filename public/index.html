@@ -102,6 +102,9 @@ td.pay { color: var(--accent); font-weight: 500; }
 .watched table { font-size: 12.5px; }
 .watched td.name, .watched th.name { text-align: left; font-family: var(--body); }
 .banner { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-radius: 4px; background: color-mix(in srgb, var(--warn) 14%, var(--bg)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); font-size: 14px; }
+.today { display: grid; gap: 2px; padding: 14px 16px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); border-left: 4px solid var(--accent); }
+.today .k { font-size: 13px; color: var(--muted); }
+.today .big { font: 700 34px var(--display); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 ul.tight { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 #jResults th, #jResults td { padding: 6px 5px; }
 #jResults th.name, #jResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 260px; font-family: var(--body); }
@@ -402,6 +405,11 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
 
       <section class="panel hidden" id="jResults" aria-labelledby="hJRes">
         <h2 id="hJRes">What you actually made</h2>
+        <div class="today">
+          <span class="k">Profit in the last 24 hours</span>
+          <span class="big" id="j24">–</span>
+          <span class="hint" id="j24Note"></span>
+        </div>
         <div class="summary six">
           <div class="tile"><span class="k">Sales revenue</span><span class="v" id="jRev">–</span></div>
           <div class="tile"><span class="k">Cost of what sold (Jita)</span><span class="v" id="jCogs">–</span></div>

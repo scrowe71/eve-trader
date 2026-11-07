@@ -1208,9 +1208,10 @@
         " CCP updates wallet data for apps about once an hour, so very recent sales can be missing for up to an hour. ";
 
       const onlyHub = settings.jWhere === "hub" && hub;
+      const day24 = Date.now() - 86400000;
       const jitaOnly = settings.jSource === "jita";
       const byType = new Map();
-      const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, soldQty: 0, revenue: 0, allSold: 0 }; byType.set(id, r); } return r; };
+      const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, soldQty: 0, revenue: 0, allSold: 0, qty24: 0, rev24: 0, ids24: [] }; byType.set(id, r); } return r; };
       for (const t of uniq) {
         if (Date.parse(t.date) < from) continue;
         const r = get(t.type_id);
@@ -1224,6 +1225,7 @@
           if (Date.parse(t.date) >= since) {
             r.soldQty += t.quantity; r.revenue += t.quantity * t.unit_price;
             (r.saleIds || (r.saleIds = [])).push(t.transaction_id);
+            if (Date.parse(t.date) >= day24) { r.qty24 += t.quantity; r.rev24 += t.quantity * t.unit_price; r.ids24.push(t.transaction_id); }
           }
         }
       }
@@ -1274,6 +1276,23 @@
       // Broker fees are charged per order, not per sale, so they can't be tied to items reliably.
       // Jita-only view: estimate listing fees for what sold. Everything view: what the wallet was charged.
       const brokerPaid = jitaOnly ? revenue * bfH : walletBroker;
+
+      // Last 24 hours: sales of the items shown, minus their Jita cost + hauling, sales tax and listing fee.
+      const sold24 = jRows.filter((r) => r.qty24 > 0);
+      const rev24 = sold24.reduce((a, r) => a + r.rev24, 0);
+      const ids24 = new Set(sold24.flatMap((r) => r.ids24));
+      const tax24 = linkable ? neg(taxEntries.filter((e) => ids24.has(e.context_id))) : rev24 * tax;
+      const known24 = sold24.filter((r) => r.avgBuy !== null);
+      const cost24 = known24.reduce((a, r) => a + r.qty24 * (r.avgBuy + r.haulUnit), 0);
+      const profit24 = known24.reduce((a, r) => a + r.rev24, 0) - cost24 - tax24 - rev24 * bfH;
+      $("j24").textContent = sold24.length ? isk(profit24) : "0.00";
+      $("j24").className = "big " + (profit24 >= 0 ? "pos" : "neg");
+      $("j24Note").textContent = sold24.length
+        ? `${intf(sold24.reduce((a, r) => a + r.qty24, 0))} units of ${sold24.length} item${sold24.length === 1 ? "" : "s"} sold for ${isk(rev24)}. ` +
+          `After Jita cost and hauling (${isk(cost24)}), sales tax (${isk(tax24)}) and listing fees (~${isk(rev24 * bfH)}).` +
+          (known24.length < sold24.length ? ` ${sold24.length - known24.length} item(s) have no purchase on record and aren't counted.` : "") +
+          " CCP's wallet data can lag up to an hour."
+        : "No sales of your import items in the last 24 hours (CCP's wallet data can lag up to an hour).";
       const cogs = sold.reduce((a, r) => a + (r.cogs || 0), 0);
       const haul = sold.reduce((a, r) => a + r.soldQty * r.haulUnit, 0);
       const placeEst = revenue * bfH;
