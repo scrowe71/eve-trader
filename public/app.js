@@ -50,10 +50,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dExcludeName", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -752,6 +752,17 @@
         items = items.filter((d) => !inGroups(d.typeId, settings.dExclude));
         excludedCount = before - items.length;
       }
+      // Leave out items by a word in their name (e.g. "Capital": cap pilots tend to import their own).
+      let nameCount = 0;
+      const nameWords = String(settings.dExcludeName || "").split(",").map((x) => x.trim()).filter(Boolean)
+        .map((w) => new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i"));
+      if (nameWords.length && items.length) {
+        const unnamed = items.filter((d) => !d.name && !nameCache[d.typeId]).map((d) => d.typeId);
+        if (unnamed.length) await names(unnamed);
+        const before = items.length;
+        items = items.filter((d) => { const n = d.name || nameCache[d.typeId] || ""; return !nameWords.some((re) => re.test(n)); });
+        nameCount = before - items.length;
+      }
       if (!items.length) { status(excludedCount || slowCount ? `Nothing left after filters: ${slowCount} sell under ${settings.dMinDaily}/day, ${excludedCount} are in categories you don't import.` : "Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
 
       const agg = await loadHubAgg();
@@ -951,6 +962,7 @@
       if (stockedCount) bits.push(`${stockedCount} already have more than ${settings.dMaxStockDays} days of competitively priced stock listed at the hub (${stockedNames.slice(0, 8).join(", ")}${stockedNames.length > 8 ? "…" : ""})`);
       if (crowdedCount) bits.push(`${crowdedCount} already have ${settings.dMaxSellers} or more other sell orders at the hub`);
       if (slowCount) bits.push(`${slowCount} sell fewer than ${settings.dMinDaily} a day`);
+      if (nameCount) bits.push(`${nameCount} have "${settings.dExcludeName}" in the name`);
       if (excludedCount) bits.push(`${excludedCount} are in categories you don't import (${settings.dExclude})`);
       if (skipped.spike) bits.push(`${skipped.spike} skipped because Jita is more than ${settings.dSpike}% above its 30-day average right now (${spikeNames.slice(0, 6).join(", ")}${spikeNames.length > 6 ? "…" : ""})`);
       if (burstNames.length) bits.push(`${burstNames.length} planned on typical days instead of a few big ones (${burstNames.slice(0, 6).join(", ")}${burstNames.length > 6 ? "…" : ""})${skipped.burst ? `, ${skipped.burst} of them then had nothing to buy` : ""}`);

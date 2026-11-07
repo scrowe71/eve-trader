@@ -105,6 +105,7 @@ Items in the categories or groups listed under **Don't import** are left out of 
 - **Bursty demand.** Each item's planned usage is compared with a typical trading day (the median of the last 30 days that had sales) in the hub's region. If usage is more than 2× that, a few big days are inflating the average, so the list plans on the typical day and marks the item **BURSTY**.
 - **Slow sellers stock for less time.** Items selling under 5 a day are only stocked for 7 days instead of the full "Days to cover", so less ISK sits on the shelf.
 - **Margin cushion.** Every unit must still clear your minimum return if Multibuy comes in at the full allowance (Pay at most), not just at the expected price.
+- **Leave out by name.** Items with a listed word in their name are skipped (default "Capital", since cap pilots often import their own). Whole words, comma-separated, e.g. `Capital, XL`.
 - **No buyback.** Items in groups your buyback refuses (crystals by default) are marked **NO BUYBACK**, the status line shows how much ISK is in them, and you can cap that total.
 
 ### Jita spike check
