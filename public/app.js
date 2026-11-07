@@ -2000,7 +2000,7 @@
         tb.appendChild(tr);
       });
       $("rNote").textContent = (cur.unknown ? `${cur.unknown} sale(s) have no Jita purchase on record and count at zero cost. ` : "") +
-        "Per-item profit uses your hub broker fee rate as an estimate; the totals above use the broker fees actually charged in the range.";
+        "Profit includes the listing fee at your hub broker fee rate on what sold; the Broker fees tile shows everything actually charged in the range.";
       $("rResults").classList.remove("hidden");
       status(`Report ready: ${isk(cur.profit)} profit on ${isk(cur.revenue)} of sales.`, "ok");
     } catch (e) {
