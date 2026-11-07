@@ -4,6 +4,7 @@
   const CFG = window.APP_CONFIG || {};
   const ESI = "https://esi.evetech.net/latest";
   const JITA_REGION = 10000002;   // The Forge
+  const JF_CARGO = 350000;        // m³ per hauling contract (one full JF load)
   const JITA_STATION = 60003760;  // Jita IV - Moon 4 - Caldari Navy Assembly Plant
   const SSO_AUTHORIZE = "https://login.eveonline.com/v2/oauth/authorize/";
   const SCOPES = [
@@ -23,7 +24,7 @@
 
   const DEFAULTS = {
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
-    haulRate: 800, coll: 1, haulDisc: 0, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
+    haulRate: 800, coll: 1, haulDisc: 0, haulExpress: 25000000, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
@@ -628,14 +629,18 @@
   function docSummary() {
     const rows = visibleDocRows();
     const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
+    const m3 = sum("totalM3");
+    const contracts = rows.length ? Math.max(1, Math.ceil(m3 / JF_CARGO)) : 0;
+    const express = contracts * (settings.haulExpress || 0);
     $("dItems").textContent = intf(rows.length);
     const jitaTotal = rows.reduce((t, r) => t + r.qty * r.cost, 0);
     $("dJita").textContent = isk(jitaTotal);
     $("dMaxJita").textContent = isk(rows.reduce((t, r) => t + r.qty * r.payMax, 0));
-    $("dHaul").textContent = isk(sum("totalSpend") - jitaTotal);
-    $("dSpend").textContent = isk(sum("totalSpend"));
+    $("dHaul").textContent = isk(sum("totalSpend") - jitaTotal + express);
+    $("dHaulNote").textContent = express ? `incl. ${isk(express)} express (${contracts} contract${contracts === 1 ? "" : "s"})` : "";
+    $("dSpend").textContent = isk(sum("totalSpend") + express);
     $("dM3").textContent = intf(sum("totalM3")) + " m³";
-    $("dProfit").textContent = isk(sum("totalProfit"));
+    $("dProfit").textContent = isk(sum("totalProfit") - express);
     const so = docResults.filter((r) => r.est);
     $("dSoldOut").textContent = so.length
       ? `${so.length} item${so.length === 1 ? " is" : "s are"} sold out at the Keepstar, so you'd be the only seller (${isk(so.reduce((a, r) => a + r.totalProfit, 0))} of the expected profit).`
