@@ -88,6 +88,14 @@ If an item is sold out at the Keepstar, its hub price is estimated as your **sol
 
 The tracker is saved in your browser, so you only need to load it again when you want fresh numbers.
 
+### Restock what sold
+
+On the Doctrine list, set **Fill slots with** to **Restock what sold since last haul**. Everything you sold at the hub since your last Jita → hub courier contract goes to the top of the buy list, with at least as many as you sold. That includes items that aren't on the tracker. Those rows are marked **SOLD**. Sold-out items come next, then everything else by profit.
+
+## Where your ISK is
+
+The Trade journal shows your trading wallet division's balance, plus your stock at cost, split into: listed at the hub, in transit on courier contracts, and not listed yet.
+
 ## Sell prices
 
 When a haul lands, open the **Sell prices** tab and click **Price my stock**. It uses the wallets set up on the Trade journal tab to find what you bought in Jita and haven't sold yet, then shows for each item:

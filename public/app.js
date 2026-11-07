@@ -539,14 +539,39 @@
     $("docRun").disabled = true;
     try {
       const pick = settings.dDemand;
+      // Restock mode: what sold at the hub since your last haul goes first, at least as many as sold.
+      const restock = new Map();
+      let restockNote = "";
+      if (settings.dPriority === "restock") {
+        status("Reading what you sold since your last haul…", "busy");
+        try {
+          await runJournal({ show: false });
+          const hs = (jRaw.hauls || []).filter((h) => h.start_location_id === JITA_STATION && h.end_location_id === hub.id && h.status !== "deleted" && h.status !== "rejected");
+          const last = hs.reduce((m, h) => Math.max(m, Date.parse(h.date_issued) || 0), 0) || PROJECT_START;
+          jRaw.tx.forEach((t) => {
+            if (!t.is_buy && t.location_id === hub.id && Date.parse(t.date) >= last) restock.set(t.type_id, (restock.get(t.type_id) || 0) + t.quantity);
+          });
+          restockNote = `Restocking ${restock.size} item${restock.size === 1 ? "" : "s"} sold since your last haul (${new Date(last).toLocaleString()}). `;
+        } catch (e) {
+          restockNote = "Couldn't read your sales for restocking (" + e.message + "). ";
+        }
+      }
+
+      const inTracker = new Set(doctrine.map((d) => d.typeId));
       let items = doctrine
-        .filter((d) => settings.dClasses === "all" || d.cls === "Seeding")
+        .filter((d) => settings.dClasses === "all" || d.cls === "Seeding" || restock.has(d.typeId))
         .map((d) => {
           const demand = pick === "a7" ? d.a7 : pick === "max" ? Math.max(d.a7, d.a30) : (d.a30 || d.a7);
-          const need = Math.ceil(settings.dDays * demand - d.stock);
-          return { ...d, demand, need, daysLeft: demand > 0 ? d.stock / demand : Infinity };
+          const sold = restock.get(d.typeId) || 0;
+          const need = Math.max(Math.ceil(settings.dDays * demand - d.stock), sold);
+          return { ...d, demand, need, sold, daysLeft: demand > 0 ? d.stock / demand : Infinity };
         })
         .filter((d) => d.need > 0);
+      // Items you sold that aren't on the tracker: restock what sold.
+      restock.forEach((sold, typeId) => {
+        if (inTracker.has(typeId)) return;
+        items.push({ typeId, name: "", stock: 0, a7: 0, a30: 0, alert: "", cls: "Restock", kind: "", demand: 0, need: sold, sold, daysLeft: Infinity });
+      });
 
       if (!items.length) { status("Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
 
@@ -632,8 +657,12 @@
       });
 
       // Fill best-first by total profit until budget / cargo runs out.
-      const soldFirst = settings.dPriority === "soldout";
-      priced.sort((a, b) => (soldFirst && a.est !== b.est ? (a.est ? -1 : 1) : 0) || (b.profit * b.qty - a.profit * a.qty));
+      const soldFirst = settings.dPriority === "soldout" || settings.dPriority === "restock";
+      const restockFirst = settings.dPriority === "restock";
+      priced.sort((a, b) =>
+        (restockFirst && !!a.sold !== !!b.sold ? (a.sold ? -1 : 1) : 0) ||
+        (soldFirst && a.est !== b.est ? (a.est ? -1 : 1) : 0) ||
+        (b.profit * b.qty - a.profit * a.qty));
       let budgetLeft = settings.dBudget > 0 ? settings.dBudget : Infinity;
       let cargoLeft = settings.dCargo > 0 ? settings.dCargo : Infinity;
       const maxItems = freeSlots();
@@ -669,9 +698,9 @@
       $("docResults").classList.remove("hidden");
       docSort = { key: "rank", dir: 1 };
       drawDocTable();
-      status(docResults.length
+      status(restockNote + (docResults.length
         ? `Buy list ready: ${docResults.length} items, ${isk(sum("totalSpend"))} to spend, about ${isk(sum("totalProfit"))} profit.`
-        : "No short items cleared your minimum return. Try a lower minimum or a higher sold-out markup.", "ok");
+        : "No short items cleared your minimum return. Try a lower minimum or a higher sold-out markup."), "ok");
     } catch (e) {
       scanError(e);
     } finally {
@@ -720,7 +749,7 @@
     { k: "totalProfit", label: "Profit", f: isk },
   ];
 
-  const docCols = () => DOC_COLS.filter((c) => c.k !== "cls" || settings.dClasses === "all");
+  const docCols = () => DOC_COLS.filter((c) => c.k !== "cls" || settings.dClasses === "all" || settings.dPriority === "restock");
 
   function drawDocTable() {
     const cols = docCols();
@@ -760,6 +789,7 @@
         if (c.k === "name") {
           td.className = "name";
           td.textContent = r.name;
+          if (r.sold) { const e = document.createElement("span"); e.className = "est"; e.style.color = "var(--good)"; e.textContent = `SOLD ${intf(r.sold)}`; e.title = "Sold since your last haul"; td.appendChild(e); }
         } else if (c.k === "cls") {
           const s = document.createElement("span");
           s.className = "cls" + (r.cls === "Seeding" ? " seed" : "");
@@ -1052,6 +1082,7 @@
 
   // ---------- trade journal ----------
   let jRows = [];
+  let jRaw = { tx: [], hauls: [] };   // last journal read: unique transactions + courier contracts
   let jSort = { key: "profit", dir: -1 };
 
   function renderChars() {
@@ -1199,6 +1230,7 @@
       // Unique transactions (corp + personal can overlap).
       const seen = new Set();
       const uniq = txs.filter((t) => (seen.has(t.transaction_id) ? false : (seen.add(t.transaction_id), true)));
+      jRaw = { tx: uniq, hauls };
       // What was actually read, so it's clear why something is or isn't in the journal.
       const inRange = uniq.filter((t) => Date.parse(t.date) >= from);
       const newest = inRange.reduce((m, t) => Math.max(m, Date.parse(t.date)), 0);
