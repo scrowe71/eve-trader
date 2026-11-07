@@ -91,7 +91,11 @@ td:first-child { font-family: var(--body); white-space: normal; min-width: 150px
 .source { display: grid; gap: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 .warnc { color: var(--warn); }
 td.pay { color: var(--accent); font-weight: 500; }
-#docResults table, #jResults table { font-size: 12.5px; }
+#docResults table, #jResults table, #sResults table { font-size: 12.5px; }
+#sResults th, #sResults td { padding: 6px 5px; }
+#sResults th.name, #sResults td.name { text-align: left; white-space: normal; min-width: 140px; max-width: 230px; font-family: var(--body); }
+#sResults td.note { max-width: 320px; color: var(--muted); font-size: 12px; }
+ul.tight { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 #jResults th, #jResults td { padding: 6px 5px; }
 #jResults th.name, #jResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 260px; font-family: var(--body); }
 .charlist { display: grid; gap: 6px; }
@@ -201,6 +205,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
       <div class="seg" role="group" aria-label="What to look at">
         <button type="button" id="tabDoc" aria-pressed="true">Doctrine list</button>
         <button type="button" id="tabScan" aria-pressed="false">Hub scan</button>
+        <button type="button" id="tabSell" aria-pressed="false">Sell prices</button>
         <button type="button" id="tabJournal" aria-pressed="false">Trade journal</button>
       </div>
 
@@ -274,6 +279,34 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <div class="row">
           <button type="button" class="primary" id="scan" disabled>Scan for imports</button>
           <button type="button" id="csv" disabled>Download CSV</button>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="sPanel" aria-labelledby="hS">
+        <h2 id="hS">Sell prices</h2>
+        <p class="hint">When a haul lands, this shows what to list each item at. It reads your Jita purchases and sales from the wallets set up on the Trade journal tab (characters, corp wallet division and start date), works out what you still hold and what it cost you including hauling, then checks the Keepstar.</p>
+        <ul class="hint tight">
+          <li><b>Break-even</b>: the lowest price where you don't lose money after sales tax and the hub broker fee.</li>
+          <li><b>Min price</b>: the lowest price that still makes your minimum return (the "Minimum return %" in the Doctrine list).</li>
+          <li><b>List at</b>: one tick under the hub's lowest sell; for sold-out items, the 7-day regional average or your sold-out markup, whichever is higher. Never below your minimum. Click it to copy.</li>
+        </ul>
+        <div class="row"><button type="button" class="primary" id="sRun">Price my stock</button></div>
+      </section>
+
+      <section class="panel hidden" id="sResults" aria-labelledby="hSRes">
+        <h2 id="hSRes">What to list at</h2>
+        <div class="summary">
+          <div class="tile"><span class="k">Items to sell</span><span class="v" id="sItems">–</span></div>
+          <div class="tile"><span class="k">Value at these prices</span><span class="v" id="sValue">–</span></div>
+          <div class="tile"><span class="k">Profit once sold</span><span class="v" id="sProfit">–</span></div>
+          <div class="tile"><span class="k">Hub below your minimum</span><span class="v" id="sWarn">–</span></div>
+        </div>
+        <p class="hint">If you've already listed some of these, the hub's lowest price may be your own order. Don't undercut yourself. Prices follow EVE's 4-significant-figure rule.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr id="sThead"></tr></thead>
+            <tbody id="sTbody"></tbody>
+          </table>
         </div>
       </section>
 

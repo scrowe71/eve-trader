@@ -88,6 +88,19 @@ If an item is sold out at the Keepstar, its hub price is estimated as your **sol
 
 The tracker is saved in your browser, so you only need to load it again when you want fresh numbers.
 
+## Sell prices
+
+When a haul lands, open the **Sell prices** tab and click **Price my stock**. It uses the wallets set up on the Trade journal tab to find what you bought in Jita and haven't sold yet, then shows for each item:
+
+- **Your cost:** average Jita price plus hauling.
+- **Break-even:** the lowest price that doesn't lose money after sales tax and the hub broker fee.
+- **Min price:** the lowest price that still makes your minimum return (the Doctrine list's "Minimum return %").
+- **Hub lowest:** the Keepstar's lowest sell and how many sellers, or **SOLD OUT**.
+- **List at:** one tick under the hub's lowest. For sold-out items it's the 7-day regional average or your sold-out markup, whichever is higher. It never goes below your minimum. Click it to copy the price.
+- **Why:** a short reason, including a warning when the hub is already selling below your minimum or your break-even.
+
+Prices follow EVE's 4-significant-figure rule. If you've already listed some items, the hub's lowest may be your own order.
+
 ## Trade journal
 
 The **Trade journal** tab reads your real buys, sales, sales tax and broker fees from your wallets and shows what each item actually made.

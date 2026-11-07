@@ -841,11 +841,14 @@
   }
 
   function setTab(which) {
-    if (!["doc", "scan", "journal"].includes(which)) which = "doc";
-    const doc = which === "doc", scanT = which === "scan", jr = which === "journal";
+    if (!["doc", "scan", "journal", "sell"].includes(which)) which = "doc";
+    const doc = which === "doc", scanT = which === "scan", jr = which === "journal", sl = which === "sell";
     $("tabDoc").setAttribute("aria-pressed", String(doc));
     $("tabScan").setAttribute("aria-pressed", String(scanT));
     $("tabJournal").setAttribute("aria-pressed", String(jr));
+    $("tabSell").setAttribute("aria-pressed", String(sl));
+    $("sPanel").classList.toggle("hidden", !sl);
+    $("sResults").classList.toggle("hidden", !sl || !sRows.length);
     $("docPanel").classList.toggle("hidden", !doc);
     $("docResults").classList.toggle("hidden", !doc || !docResults.length);
     $("scanPanel").classList.toggle("hidden", !scanT);
@@ -998,7 +1001,9 @@
     return out;
   }
 
-  async function runJournal() {
+  // show=false: just fill jRows (used by the Sell prices tab) and throw on errors.
+  async function runJournal(opts = {}) {
+    const show = opts.show !== false;
     $("jRun").disabled = true;
     try {
       const period = Math.max(1, settings.jPeriod) * 86400000;
@@ -1127,12 +1132,16 @@
         (missing ? `${missing} item${missing === 1 ? " has" : "s have"} sales but no purchase in the wallets I read, so their profit is blank (bought with a character or corp division you didn't include, or more than 90 days ago). ` : "") +
         "Hauling is estimated from your hauling settings (express fee not included). \"Left\" is bought minus sold across the wallet history read, so it's approximate." + corpNote;
 
-      $("jResults").classList.remove("hidden");
       jSort = { key: "profit", dir: -1 };
       drawJournal();
-      status(`Journal ready: ${sold.length} items sold in the last ${days} days, ${isk(net)} net after actual fees.${corpNote}`, "ok");
+      if (show) {
+        $("jResults").classList.remove("hidden");
+        status(`Journal ready: ${sold.length} items sold in the last ${days} days, ${isk(net)} net after actual fees.${corpNote}`, "ok");
+      }
+      return true;
     } catch (e) {
       console.error(e);
+      if (!show) throw e;
       if (e.status === 403) status("CCP refused the wallet read (403). Click \"Allow wallet access\" for that character, or check the EVE app has the wallet permissions (see README).", "err");
       else status(e.message || String(e), "err");
     } finally {
@@ -1155,6 +1164,151 @@
     status(value
       ? `The journal now counts only trades from ${new Date(Math.max(PROJECT_START, Date.parse(value) || 0)).toLocaleString()} onward.`
       : `The journal now counts everything since the project started (${new Date(PROJECT_START).toLocaleString()}).`, "ok");
+  }
+
+  // ---------- sell prices ----------
+  let sRows = [];
+  let sSort = { key: "name", dir: 1 };
+
+  // Market prices can only have 4 significant figures; one "tick" is the smallest step.
+  const tick = (p) => (p > 0 ? Math.pow(10, Math.floor(Math.log10(p)) - 3) : 0.01);
+  const floorTick = (p) => { const t = tick(p); return Math.floor(p / t) * t; };
+  const ceilTick = (p) => { const t = tick(p); return Math.ceil(p / t - 1e-9) * t; };
+
+  async function recentAvgPrice(typeId, regionId) {
+    try {
+      const h = (await esi(`/markets/${regionId}/history/?type_id=${typeId}`)).data;
+      const last = h.slice(-7);
+      const vol = last.reduce((a, d) => a + d.volume, 0);
+      return vol ? last.reduce((a, d) => a + d.average * d.volume, 0) / vol : null;
+    } catch { return null; }
+  }
+
+  async function runSell() {
+    if (!hub) { status("Pick your hub first.", "err"); return; }
+    $("sRun").disabled = true;
+    try {
+      status("Reading your wallets to see what you still hold…", "busy");
+      await runJournal({ show: false });
+      const held = jRows.filter((r) => r.left > 0 && r.avgBuy !== null);
+      if (!held.length) { status("Nothing bought in Jita is waiting to be sold (since the project start / your journal date).", "ok"); sRows = []; drawSell(); return; }
+
+      const agg = await loadHubAgg();
+      const tax = salesTax(), bfH = hubBroker(), keep = 1 - tax - bfH;
+      const minRoi = settings.dMinRoi / 100;
+      let done = 0;
+      sRows = await pool(held, 6, async (r) => {
+        const h = agg.get(r.typeId);
+        const lowest = h && h.sellMin < Infinity ? h.sellMin : null;
+        const cost = r.avgBuy + r.haulUnit;
+        const breakEven = ceilTick(cost / keep);
+        const minPrice = ceilTick(cost * (1 + minRoi) / keep);
+        let suggested, note, kind;
+        if (lowest !== null) {
+          const under = floorTick(lowest - tick(lowest) * 0.5);   // one tick under the lowest sell
+          if (under >= minPrice) { suggested = under; note = `One tick under the lowest of ${h.sellOrders} seller${h.sellOrders === 1 ? "" : "s"}.`; kind = "good"; }
+          else if (lowest >= breakEven) { suggested = minPrice; note = `The hub is selling below your ${settings.dMinRoi}% price. List at your minimum and wait, or match it for a smaller profit.`; kind = "warn"; }
+          else { suggested = minPrice; note = "The hub price is below your break-even. Hold, or list at your minimum and wait for the cheap ones to sell."; kind = "bad"; }
+        } else {
+          const avg = await recentAvgPrice(r.typeId, hub.regionId);
+          const est = Math.max(avg || 0, (r.avgBuy || 0) * settings.dMarkup / 100);
+          suggested = Math.max(floorTick(est), minPrice);
+          note = avg
+            ? `Sold out: priced from the 7-day ${hub.region} average (${isk(avg)}) or your sold-out markup, whichever is higher.`
+            : `Sold out, and no recent sales history: priced at your ${settings.dMarkup}% sold-out markup.`;
+          kind = "sold";
+        }
+        status(`Pricing your stock: ${++done} of ${held.length}…`, "busy");
+        const profitUnit = suggested * keep - cost;
+        return {
+          typeId: r.typeId, name: r.name, left: r.left, cost, breakEven, minPrice, lowest,
+          sellers: h ? h.sellOrders : 0, suggested, note, kind,
+          roi: profitUnit / cost, profit: profitUnit * r.left, value: suggested * r.left,
+        };
+      });
+      sSort = { key: "name", dir: 1 };
+      drawSell();
+      $("sResults").classList.remove("hidden");
+      const tot = sRows.reduce((a, r) => a + r.profit, 0);
+      status(`Priced ${sRows.length} items. Listing everything at the suggested prices would make about ${isk(tot)} once it sells.`, "ok");
+    } catch (e) {
+      scanError(e);
+    } finally {
+      $("sRun").disabled = false;
+    }
+  }
+
+  const S_COLS = [
+    { k: "name", label: "Item" },
+    { k: "left", label: "To sell", f: intf },
+    { k: "cost", label: "Your cost", f: isk },
+    { k: "breakEven", label: "Break-even", f: isk },
+    { k: "minPrice", label: "Min price", f: isk },
+    { k: "lowest", label: "Hub lowest", f: (v) => (v === null ? "SOLD OUT" : isk(v)) },
+    { k: "suggested", label: "List at", f: isk },
+    { k: "roi", label: "Return", f: pct },
+    { k: "profit", label: "Profit (all)", f: isk },
+    { k: "note", label: "Why" },
+  ];
+
+  function drawSell() {
+    const tr = $("sThead"), tb = $("sTbody");
+    tr.innerHTML = ""; tb.innerHTML = "";
+    const v = sRows.reduce((a, r) => a + r.value, 0), p = sRows.reduce((a, r) => a + r.profit, 0);
+    $("sItems").textContent = intf(sRows.length);
+    $("sValue").textContent = isk(v);
+    $("sProfit").textContent = isk(p);
+    $("sWarn").textContent = intf(sRows.filter((r) => r.kind === "warn" || r.kind === "bad").length);
+    S_COLS.forEach((c) => {
+      const th = document.createElement("th");
+      th.textContent = c.label;
+      th.tabIndex = 0;
+      if (c.k === "name" || c.k === "note") th.className = "name";
+      if (c.k === sSort.key) th.setAttribute("aria-sort", sSort.dir < 0 ? "descending" : "ascending");
+      const go = () => { if (sSort.key === c.k) sSort.dir = -sSort.dir; else sSort = { key: c.k, dir: c.k === "name" ? 1 : -1 }; drawSell(); };
+      th.addEventListener("click", go);
+      th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      tr.appendChild(th);
+    });
+    const { key, dir } = sSort;
+    const val = (x) => (x === null || !isFinite(x) ? -1 : x);
+    const rows = [...sRows].sort((a, b) => (typeof a[key] === "string" ? dir * a[key].localeCompare(b[key]) : dir * (val(a[key]) - val(b[key]))));
+    const frag = document.createDocumentFragment();
+    rows.forEach((r) => {
+      const row = document.createElement("tr");
+      S_COLS.forEach((c) => {
+        const td = document.createElement("td");
+        if (c.k === "name") { td.className = "name"; td.textContent = r.name; }
+        else if (c.k === "note") { td.className = "name note"; td.textContent = r.note; }
+        else if (c.k === "lowest") {
+          if (r.lowest === null) { const s = document.createElement("span"); s.className = "chip good"; s.textContent = "SOLD OUT"; td.appendChild(s); }
+          else { td.textContent = `${isk(r.lowest)} (${r.sellers})`; td.title = `${r.sellers} seller${r.sellers === 1 ? "" : "s"}. If one of them is you, you may already be the lowest.`; }
+        } else if (c.k === "suggested") {
+          td.className = "pay";
+          const b = document.createElement("button");
+          b.type = "button"; b.className = "copy";
+          b.textContent = Math.round(r.suggested).toLocaleString("en-US");
+          b.title = "Copy this price";
+          b.addEventListener("click", async () => {
+            try { await navigator.clipboard.writeText(String(Math.round(r.suggested))); b.textContent = "Copied"; }
+            catch { b.textContent = "Can't copy"; }
+            setTimeout(() => (b.textContent = Math.round(r.suggested).toLocaleString("en-US")), 1200);
+          });
+          td.appendChild(b);
+        } else if (c.k === "roi") {
+          const s = document.createElement("span");
+          s.className = "chip " + (r.kind === "bad" ? "bad" : r.kind === "warn" ? "warn" : "good");
+          s.textContent = pct(r.roi);
+          td.appendChild(s);
+        } else {
+          td.textContent = c.f(r[c.k]);
+          if (c.k === "profit") td.className = r.profit >= 0 ? "pos" : "neg";
+        }
+        row.appendChild(td);
+      });
+      frag.appendChild(row);
+    });
+    tb.appendChild(frag);
   }
 
   const J_COLS = [
@@ -1381,6 +1535,8 @@
 
     $("tabDoc").addEventListener("click", () => setTab("doc"));
     $("tabJournal").addEventListener("click", () => setTab("journal"));
+    $("tabSell").addEventListener("click", () => setTab("sell"));
+    $("sRun").addEventListener("click", runSell);
     $("jAdd").addEventListener("click", () => login("journal"));
     $("jRun").addEventListener("click", runJournal);
     $("jClear").addEventListener("click", clearJournal);
