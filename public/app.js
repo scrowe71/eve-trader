@@ -7,11 +7,16 @@
   const JF_CARGO = 350000;        // m³ per hauling contract (one full JF load)
   const JITA_STATION = 60003760;  // Jita IV - Moon 4 - Caldari Navy Assembly Plant
   const SSO_AUTHORIZE = "https://login.eveonline.com/v2/oauth/authorize/";
-  const SCOPES = [
+  const BASE_SCOPES = [
     "esi-markets.structure_markets.v1",
     "esi-search.search_structures.v1",
     "esi-universe.read_structures.v1",
-  ].join(" ");
+  ];
+  // Extra permissions for the Trade journal (wallet transactions + journal).
+  const WALLET_SCOPES = [
+    "esi-wallet.read_character_wallet.v1",
+    "esi-wallet.read_corporation_wallets.v1",
+  ];
 
   const $ = (id) => document.getElementById(id);
 
@@ -28,10 +33,13 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
+    jPeriod: 14, jWhere: "hub", jCorp: "on", jCorpDiv: 1, jCorpChar: "",
   };
-  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority"]);
+  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorp", "jCorpChar"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
-  let token = store.get("token", null);
+  let token = store.get("token", null);                 // the hub (primary) character
+  const chars = store.get("chars", {});                 // every logged-in character, by id
+  if (token && !chars[token.charId]) { chars[token.charId] = token; store.set("chars", chars); }
   let hub = store.get("hub", null);
   let results = [];
   let sortKey = "dayProfit", sortDir = -1;
@@ -72,7 +80,9 @@
     return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
-  async function login() {
+  // mode "primary": the hub character (market permissions only).
+  // mode "journal": add or refresh a character with wallet permissions too.
+  async function login(mode = "primary") {
     if (!CFG.CLIENT_ID || CFG.CLIENT_ID.startsWith("PASTE")) {
       status("Add your EVE app's Client ID to config.js first (see README).", "err");
       return;
@@ -80,12 +90,13 @@
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
     const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-    sessionStorage.setItem("pkce", JSON.stringify({ verifier, state }));
+    sessionStorage.setItem("pkce", JSON.stringify({ verifier, state, mode }));
+    const scopes = mode === "journal" ? BASE_SCOPES.concat(WALLET_SCOPES) : BASE_SCOPES;
     const p = new URLSearchParams({
       response_type: "code",
       redirect_uri: CFG.CALLBACK_URL,
       client_id: CFG.CLIENT_ID,
-      scope: SCOPES,
+      scope: scopes.join(" "),
       code_challenge: challenge,
       code_challenge_method: "S256",
       state,
@@ -112,17 +123,30 @@
     return JSON.parse(new TextDecoder().decode(bytes));
   }
 
-  function saveToken(t) {
+  function saveToken(t, mode) {
     const claims = decodeJwt(t.access_token);
-    token = {
+    const charId = String(claims.sub || "").split(":").pop();
+    const prev = chars[charId];
+    const scp = Array.isArray(claims.scp) ? claims.scp : (claims.scp ? [claims.scp] : []);
+    const obj = {
       access: t.access_token,
-      refresh: t.refresh_token || (token && token.refresh),
+      refresh: t.refresh_token || (prev && prev.refresh),
       exp: Date.now() + (t.expires_in || 1199) * 1000,
-      charId: String(claims.sub || "").split(":").pop(),
-      name: claims.name || "",
+      charId,
+      name: claims.name || (prev && prev.name) || "",
+      scopes: scp,
+      include: prev ? prev.include !== false : true,
     };
-    store.set("token", token);
+    chars[charId] = obj;
+    store.set("chars", chars);
+    if (mode === "primary" || !token || token.charId === charId) {
+      token = obj;
+      store.set("token", token);
+    }
+    return obj;
   }
+
+  const hasWallet = (c) => !!(c && c.scopes && c.scopes.includes("esi-wallet.read_character_wallet.v1"));
 
   async function handleCallback() {
     const q = new URLSearchParams(location.search);
@@ -140,28 +164,33 @@
       client_id: CFG.CLIENT_ID,
       code_verifier: saved.verifier,
     });
-    saveToken(t);
+    const c = saveToken(t, saved.mode || "primary");
+    if (saved.mode === "journal") store.set("tab", "journal");
+    return c;
   }
 
-  async function accessToken() {
-    if (!token) throw new Error("You're not logged in.");
-    if (Date.now() < token.exp - 60000) return token.access;
-    const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: token.refresh, client_id: CFG.CLIENT_ID });
-    saveToken(t);
-    return token.access;
+  async function accessToken(charId) {
+    const c = charId ? chars[charId] : token;
+    if (!c) throw new Error("You're not logged in.");
+    if (Date.now() < c.exp - 60000) return c.access;
+    const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: c.refresh, client_id: CFG.CLIENT_ID });
+    return saveToken(t, token && token.charId === c.charId ? "primary" : "journal").access;
   }
 
   function logout() {
     token = null;
     store.del("token");
+    for (const k of Object.keys(chars)) delete chars[k];
+    store.del("chars");
     render();
-    status("Logged out.", "ok");
+    renderChars();
+    status("Logged out of every character.", "ok");
   }
 
   // ---------- ESI ----------
-  async function esi(path, { auth = false, method = "GET", body = null } = {}) {
+  async function esi(path, { auth = false, method = "GET", body = null, charId = null } = {}) {
     const headers = {};
-    if (auth) headers.Authorization = "Bearer " + (await accessToken());
+    if (auth) headers.Authorization = "Bearer " + (await accessToken(charId));
     if (body) headers["Content-Type"] = "application/json";
     const sep = path.includes("?") ? "&" : "?";
     const r = await fetch(ESI + path + sep + "datasource=tranquility", {
@@ -797,14 +826,285 @@
   }
 
   function setTab(which) {
-    const doc = which === "doc";
+    if (!["doc", "scan", "journal"].includes(which)) which = "doc";
+    const doc = which === "doc", scanT = which === "scan", jr = which === "journal";
     $("tabDoc").setAttribute("aria-pressed", String(doc));
-    $("tabScan").setAttribute("aria-pressed", String(!doc));
+    $("tabScan").setAttribute("aria-pressed", String(scanT));
+    $("tabJournal").setAttribute("aria-pressed", String(jr));
     $("docPanel").classList.toggle("hidden", !doc);
     $("docResults").classList.toggle("hidden", !doc || !docResults.length);
-    $("scanPanel").classList.toggle("hidden", doc);
-    $("resultsPanel").classList.toggle("hidden", doc || !results.length);
+    $("scanPanel").classList.toggle("hidden", !scanT);
+    $("resultsPanel").classList.toggle("hidden", !scanT || !results.length);
+    $("jPanel").classList.toggle("hidden", !jr);
+    $("jResults").classList.toggle("hidden", !jr || !jRows.length);
     store.set("tab", which);
+  }
+
+  // ---------- trade journal ----------
+  let jRows = [];
+  let jSort = { key: "profit", dir: -1 };
+
+  function renderChars() {
+    const box = $("jChars");
+    if (!box) return;
+    box.innerHTML = "";
+    const list = Object.values(chars);
+    if (!list.length) {
+      box.innerHTML = '<p class="hint">No characters yet. Click "Add a character" and log in with each character that buys or sells.</p>';
+    }
+    list.forEach((c) => {
+      const row = document.createElement("div");
+      row.className = "charrow";
+      const img = document.createElement("img");
+      img.src = `https://images.evetech.net/characters/${c.charId}/portrait?size=32`;
+      img.alt = "";
+      const lab = document.createElement("label");
+      lab.className = "inline";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = c.include !== false;
+      cb.disabled = !hasWallet(c);
+      cb.addEventListener("change", () => { c.include = cb.checked; store.set("chars", chars); });
+      const nm = document.createElement("span");
+      nm.textContent = c.name + (token && token.charId === c.charId ? " (hub character)" : "");
+      lab.append(cb, nm);
+      row.append(img, lab);
+      if (!hasWallet(c)) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = "Allow wallet access";
+        b.title = "Log this character in again with wallet permissions";
+        b.addEventListener("click", () => login("journal"));
+        row.appendChild(b);
+      }
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "linkish";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", () => {
+        delete chars[c.charId];
+        store.set("chars", chars);
+        if (token && token.charId === c.charId) { token = null; store.del("token"); render(); }
+        renderChars();
+      });
+      row.appendChild(rm);
+      box.appendChild(row);
+    });
+    const sel = $("jCorpChar");
+    const cur = settings.jCorpChar;
+    sel.innerHTML = "";
+    list.filter(hasWallet).forEach((c) => {
+      const o = document.createElement("option");
+      o.value = c.charId; o.textContent = c.name;
+      sel.appendChild(o);
+    });
+    if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+    else if (sel.options.length) { sel.value = sel.options[0].value; settings.jCorpChar = sel.value; }
+    $("jRun").disabled = !list.some((c) => hasWallet(c) && c.include !== false);
+  }
+
+  async function allPages(path, charId) {
+    const first = await esi(path + (path.includes("?") ? "&" : "?") + "page=1", { auth: true, charId });
+    let out = first.data;
+    for (let p = 2; p <= (first.pages || 1) && p <= 50; p++) {
+      out = out.concat((await esi(path + (path.includes("?") ? "&" : "?") + "page=" + p, { auth: true, charId })).data);
+    }
+    return out;
+  }
+
+  async function transactions(base, charId) {
+    // Newest first; walk back with from_id until we pass the cost-basis window or run out.
+    let out = [], fromId = null;
+    const stop = Date.now() - 90 * 86400000;
+    for (let i = 0; i < 10; i++) {
+      const q = fromId ? `?from_id=${fromId}` : "";
+      const batch = (await esi(base + q, { auth: true, charId })).data;
+      const fresh = batch.filter((t) => !out.length || t.transaction_id < out[out.length - 1].transaction_id);
+      if (!fresh.length) break;
+      out = out.concat(fresh);
+      const oldest = fresh[fresh.length - 1];
+      if (Date.parse(oldest.date) < stop) break;
+      fromId = oldest.transaction_id - 1;
+    }
+    return out;
+  }
+
+  async function runJournal() {
+    $("jRun").disabled = true;
+    try {
+      const period = Math.max(1, settings.jPeriod) * 86400000;
+      const since = Date.now() - period;
+      const txs = [], journal = [];
+      const who = Object.values(chars).filter((c) => hasWallet(c) && c.include !== false);
+      if (settings.jCorp === "on" && !settings.jCorpChar) throw new Error("Pick which character reads the corp wallet (it needs the Accountant or Junior Accountant role).");
+      for (const c of who) {
+        status(`Reading ${c.name}'s wallet…`, "busy");
+        txs.push(...(await transactions(`/characters/${c.charId}/wallet/transactions/`, c.charId)));
+        journal.push(...(await allPages(`/characters/${c.charId}/wallet/journal/`, c.charId)));
+      }
+      let corpNote = "";
+      if (settings.jCorp === "on" && settings.jCorpChar && chars[settings.jCorpChar]) {
+        const cid = settings.jCorpChar, div = Math.min(7, Math.max(1, Math.round(settings.jCorpDiv || 1)));
+        status(`Reading corp wallet division ${div}…`, "busy");
+        try {
+          const corpId = (await esi(`/characters/${cid}/`)).data.corporation_id;
+          const ctx = await transactions(`/corporations/${corpId}/wallets/${div}/transactions/`, cid);
+          const cj = await allPages(`/corporations/${corpId}/wallets/${div}/journal/`, cid);
+          // Everything in this division is treated as your trading (buys, sales, taxes and broker fees).
+          txs.push(...ctx);
+          journal.push(...cj);
+        } catch (e) {
+          corpNote = e.status === 403
+            ? " The corp wallet was skipped: that character needs the Accountant or Junior Accountant role."
+            : " The corp wallet couldn't be read (" + e.message + ").";
+        }
+      }
+
+      // Unique transactions (corp + personal can overlap).
+      const seen = new Set();
+      const uniq = txs.filter((t) => (seen.has(t.transaction_id) ? false : (seen.add(t.transaction_id), true)));
+
+      const onlyHub = settings.jWhere === "hub" && hub;
+      const byType = new Map();
+      const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, soldQty: 0, revenue: 0, allSold: 0 }; byType.set(id, r); } return r; };
+      for (const t of uniq) {
+        const r = get(t.type_id);
+        if (t.is_buy) {
+          if (onlyHub && t.location_id === hub.id) continue;   // buying at the hub isn't an import
+          r.buyQty += t.quantity; r.buyIsk += t.quantity * t.unit_price;
+        } else {
+          if (onlyHub && t.location_id !== hub.id) continue;
+          r.allSold += t.quantity;
+          if (Date.parse(t.date) >= since) { r.soldQty += t.quantity; r.revenue += t.quantity * t.unit_price; }
+        }
+      }
+
+      const rows = [...byType.values()].filter((r) => r.soldQty > 0 || r.buyQty > 0);
+      await volumes(rows.map((r) => r.typeId));
+      await names(rows.map((r) => r.typeId));
+
+      const tax = salesTax(), bfH = hubBroker();
+      const days = Math.max(1, settings.jPeriod);
+      const tracker = new Map((doctrine || []).map((d) => [d.typeId, d]));
+      rows.forEach((r) => {
+        r.name = nameCache[r.typeId] || "Type " + r.typeId;
+        r.avgBuy = r.buyQty ? r.buyIsk / r.buyQty : null;
+        r.avgSell = r.soldQty ? r.revenue / r.soldQty : null;
+        r.haulUnit = r.avgBuy !== null ? haulCost(volCache[r.typeId] || 0, r.avgBuy) : 0;
+        r.cogs = r.avgBuy !== null ? r.soldQty * (r.avgBuy + r.haulUnit) : null;
+        r.fees = r.revenue * (tax + bfH);
+        r.profit = r.cogs !== null ? r.revenue - r.fees - r.cogs : null;
+        r.roi = r.cogs ? r.profit / r.cogs : null;
+        r.perDay = r.soldQty / days;
+        const d = tracker.get(r.typeId);
+        r.hubPerDay = d ? (d.a30 || d.a7) : null;
+        r.left = Math.max(0, r.buyQty - r.allSold);
+        r.leftIsk = r.avgBuy !== null ? r.left * (r.avgBuy + r.haulUnit) : 0;
+      });
+      jRows = rows.filter((r) => r.soldQty > 0 || r.left > 0);
+
+      // Fees actually charged in the period (wallet journal).
+      const inP = journal.filter((e) => Date.parse(e.date) >= since);
+      const sumRef = (ref) => -inP.filter((e) => e.ref_type === ref).reduce((a, e) => a + (e.amount || 0), 0);
+      const taxPaid = sumRef("transaction_tax");
+      const brokerPaid = sumRef("brokers_fee");
+
+      const sold = jRows.filter((r) => r.soldQty > 0);
+      const revenue = sold.reduce((a, r) => a + r.revenue, 0);
+      const cogs = sold.reduce((a, r) => a + (r.cogs || 0), 0);
+      const haul = sold.reduce((a, r) => a + r.soldQty * r.haulUnit, 0);
+      const placeEst = revenue * bfH;
+      const net = revenue - cogs - taxPaid - brokerPaid;
+      $("jRev").textContent = isk(revenue);
+      $("jCogs").textContent = isk(cogs - haul);
+      $("jHaul").textContent = isk(haul);
+      $("jTax").textContent = isk(taxPaid);
+      $("jBroker").textContent = isk(brokerPaid);
+      $("jNet").textContent = isk(net);
+      $("jNet").className = "v " + (net >= 0 ? "pos" : "neg");
+      $("jLeft").textContent = isk(jRows.reduce((a, r) => a + r.leftIsk, 0));
+      const extra = brokerPaid - placeEst;
+      $("jFeeNote").textContent = brokerPaid > 0
+        ? `You paid ${isk(brokerPaid)} in broker fees over ${days} days. Listing the units you sold would cost about ${isk(placeEst)}; ` +
+          `the other ${isk(Math.max(0, extra))} went on listings that haven't sold yet and on order updates${extra > placeEst ? " — that's more than the listings themselves, so order updates are costing you real money." : "."}`
+        : "No broker fees in this period.";
+      const missing = sold.filter((r) => r.avgBuy === null).length;
+      $("jNote").textContent =
+        (missing ? `${missing} item${missing === 1 ? " has" : "s have"} sales but no purchase in the wallets I read, so their profit is blank (bought with a character or corp division you didn't include, or more than 90 days ago). ` : "") +
+        "Hauling is estimated from your hauling settings (express fee not included). \"Left\" is bought minus sold across the wallet history read, so it's approximate." + corpNote;
+
+      $("jResults").classList.remove("hidden");
+      jSort = { key: "profit", dir: -1 };
+      drawJournal();
+      status(`Journal ready: ${sold.length} items sold in the last ${days} days, ${isk(net)} net after actual fees.${corpNote}`, "ok");
+    } catch (e) {
+      console.error(e);
+      if (e.status === 403) status("CCP refused the wallet read (403). Click \"Allow wallet access\" for that character, or check the EVE app has the wallet permissions (see README).", "err");
+      else status(e.message || String(e), "err");
+    } finally {
+      renderChars();
+    }
+  }
+
+  const J_COLS = [
+    { k: "name", label: "Item" },
+    { k: "soldQty", label: "Sold", f: intf },
+    { k: "avgBuy", label: "Avg buy", f: isk },
+    { k: "avgSell", label: "Avg sell", f: isk },
+    { k: "revenue", label: "Revenue", f: isk },
+    { k: "profit", label: "Profit", f: isk },
+    { k: "roi", label: "Return", f: pct },
+    { k: "perDay", label: "You sold / day", f: (v) => (v >= 100 ? intf(v) : v.toFixed(1)) },
+    { k: "hubPerDay", label: "Hub sold / day", f: (v) => (v === null ? "–" : v >= 100 ? intf(v) : v.toFixed(1)) },
+    { k: "left", label: "Left", f: intf },
+  ];
+
+  function drawJournal() {
+    const tr = $("jThead");
+    tr.innerHTML = "";
+    J_COLS.forEach((c) => {
+      const th = document.createElement("th");
+      th.textContent = c.label;
+      th.tabIndex = 0;
+      if (c.k === "name") th.className = "name";
+      if (c.k === jSort.key) th.setAttribute("aria-sort", jSort.dir < 0 ? "descending" : "ascending");
+      const go = () => { if (jSort.key === c.k) jSort.dir = -jSort.dir; else jSort = { key: c.k, dir: c.k === "name" ? 1 : -1 }; drawJournal(); };
+      th.addEventListener("click", go);
+      th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      tr.appendChild(th);
+    });
+    const { key, dir } = jSort;
+    const val = (v) => (v === null || !isFinite(v) ? -1e18 * dir : v);
+    const rows = [...jRows].sort((a, b) => (typeof a[key] === "string" ? dir * a[key].localeCompare(b[key]) : dir * (val(a[key]) - val(b[key]))));
+    const tb = $("jTbody");
+    tb.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    rows.forEach((r) => {
+      const row = document.createElement("tr");
+      J_COLS.forEach((c) => {
+        const td = document.createElement("td");
+        if (c.k === "name") { td.className = "name"; td.textContent = r.name; }
+        else if (c.k === "roi") {
+          if (r.roi === null) td.textContent = "–";
+          else { const sp = document.createElement("span"); sp.className = "chip " + (r.roi >= 0.2 ? "good" : r.roi >= 0.05 ? "warn" : "bad"); sp.textContent = pct(r.roi); td.appendChild(sp); }
+        } else {
+          td.textContent = c.f(r[c.k]);
+          if (c.k === "profit" && r.profit !== null) td.className = r.profit >= 0 ? "pos" : "neg";
+          if (c.k === "perDay" && r.hubPerDay) {
+            const share = r.perDay / r.hubPerDay;
+            td.title = `You sold ${(share * 100).toFixed(0)}% of what the hub uses per day.`;
+          }
+          if (c.k === "left" && r.left > 0) {
+            const daysToClear = r.perDay > 0 ? r.left / r.perDay : Infinity;
+            td.title = isFinite(daysToClear) ? `About ${daysToClear.toFixed(0)} days to sell at your current pace (${isk(r.leftIsk)} at cost).` : `Not selling yet (${isk(r.leftIsk)} at cost).`;
+            if (!isFinite(daysToClear) || daysToClear > 30) td.className = "neg";
+          }
+        }
+        row.appendChild(td);
+      });
+      frag.appendChild(row);
+    });
+    tb.appendChild(frag);
   }
 
   // ---------- table ----------
@@ -938,7 +1238,7 @@
   }
 
   function wire() {
-    $("login").addEventListener("click", login);
+    $("login").addEventListener("click", () => login("primary"));
     $("logout").addEventListener("click", logout);
     $("hubChange").addEventListener("click", () => { hub = null; store.del("hub"); render(); });
     $("hubSearchBtn").addEventListener("click", async () => {
@@ -969,6 +1269,9 @@
     $("csv").addEventListener("click", downloadCsv);
 
     $("tabDoc").addEventListener("click", () => setTab("doc"));
+    $("tabJournal").addEventListener("click", () => setTab("journal"));
+    $("jAdd").addEventListener("click", () => login("journal"));
+    $("jRun").addEventListener("click", runJournal);
     $("tabScan").addEventListener("click", () => setTab("scan"));
     $("docFile").addEventListener("change", async (e) => {
       const f = e.target.files && e.target.files[0];
@@ -996,15 +1299,18 @@
     wire();
     bindSettings();
     restoreDoctrine();
-    setTab(store.get("tab", "doc"));
     try {
       await handleCallback();
     } catch (e) {
       status(e.message, "err");
       render();
+      renderChars();
+      setTab(store.get("tab", "doc"));
       return;
     }
     render();
+    renderChars();
+    setTab(store.get("tab", "doc"));
     if (!token) status("Log in with the character that can dock at your alliance hub.", "");
     else if (!hub) status(`Logged in as ${token.name}. Now find your hub structure.`, "ok");
     else status(`Ready. Click "Scan for imports" to compare ${hub.name} with Jita.`, "ok");

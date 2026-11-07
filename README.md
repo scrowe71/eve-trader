@@ -88,6 +88,29 @@ If an item is sold out at the Keepstar, its hub price is estimated as your **sol
 
 The tracker is saved in your browser, so you only need to load it again when you want fresh numbers.
 
+## Trade journal
+
+The **Trade journal** tab reads your real buys, sales, sales tax and broker fees from your wallets and shows what each item actually made.
+
+**One-time setup:** on https://developers.eveonline.com, open the EVE app and add these two permissions to the ones it already has:
+
+- `esi-wallet.read_character_wallet.v1`
+- `esi-wallet.read_corporation_wallets.v1`
+
+Then, in the Trade journal tab:
+
+1. Click **Add a character (with wallet access)** for each character that buys or sells.
+2. Leave **Corp wallet** on **Include**, and set the division you trade from. 1 is the Master Wallet, then 2–7 in the order shown in game. Pick a character with the **Accountant** or **Junior Accountant** role to read it. Everything in that division counts as trading.
+3. Choose a period, up to 30 days (CCP only keeps 30 days of wallet journal), and click **Load my trades**.
+
+**What it shows:**
+
+- Revenue, cost of what sold, estimated hauling, and the sales tax and broker fees actually charged.
+- Net profit.
+- Unsold stock, valued at cost.
+- A line comparing the broker fees you paid with what listing would have cost. The difference is mostly order updates.
+- Per item: average buy and sell price, profit, return, your sales per day compared with the hub's (from the doctrine tracker, if loaded), and how much is left to sell.
+
 ## Known limits
 
 - ESI caches structure markets for about 5 minutes, so scanning more often than that won't show anything new.

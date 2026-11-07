@@ -91,7 +91,15 @@ td:first-child { font-family: var(--body); white-space: normal; min-width: 150px
 .source { display: grid; gap: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
 .warnc { color: var(--warn); }
 td.pay { color: var(--accent); font-weight: 500; }
-#docResults table { font-size: 12.5px; }
+#docResults table, #jResults table { font-size: 12.5px; }
+#jResults th, #jResults td { padding: 6px 5px; }
+#jResults th.name, #jResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 260px; font-family: var(--body); }
+.charlist { display: grid; gap: 6px; }
+.charrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.charrow img { width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--line); }
+label.inline { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); }
+label.inline input { width: auto; }
+button.linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; padding: 4px; font-weight: 500; }
 #docResults th, #docResults td { padding: 6px 5px; }
 #docResults th.name, #docResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 230px; font-family: var(--body); }
 .est { font: 600 10px var(--body); color: var(--warn); margin-left: 4px; }
@@ -193,6 +201,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
       <div class="seg" role="group" aria-label="What to look at">
         <button type="button" id="tabDoc" aria-pressed="true">Doctrine list</button>
         <button type="button" id="tabScan" aria-pressed="false">Hub scan</button>
+        <button type="button" id="tabJournal" aria-pressed="false">Trade journal</button>
       </div>
 
       <section class="panel" id="docPanel" aria-labelledby="hDoc">
@@ -266,6 +275,55 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <button type="button" class="primary" id="scan" disabled>Scan for imports</button>
           <button type="button" id="csv" disabled>Download CSV</button>
         </div>
+      </section>
+
+      <section class="panel hidden" id="jPanel" aria-labelledby="hJ">
+        <h2 id="hJ">Trade journal</h2>
+        <p class="hint">Reads your actual buys, sales, taxes and broker fees from the wallet and shows what each item really made. Add every character that buys or sells, with wallet access.</p>
+        <div class="source">
+          <h3>Characters</h3>
+          <div id="jChars" class="charlist"></div>
+          <div class="row"><button type="button" id="jAdd">Add a character (with wallet access)</button></div>
+        </div>
+        <div class="fields four">
+          <label>Corp wallet
+            <select id="jCorp"><option value="on">Include</option><option value="off">Don't include</option></select>
+          </label>
+          <label>Corp wallet division (1 = Master)<input id="jCorpDiv" type="number" min="1" max="7" step="1"></label>
+          <label>Read corp wallet with
+            <select id="jCorpChar"></select>
+          </label>
+          <label>Period (days)<input id="jPeriod" type="number" min="1" max="30" step="1"></label>
+          <label>Count sales
+            <select id="jWhere"><option value="hub">At the hub only</option><option value="all">Everywhere</option></select>
+          </label>
+        </div>
+        <p class="hint">The corp wallet needs a character with the Accountant or Junior Accountant role. Division numbers follow the order in the in-game Corporation → Wallet window: 1 is Master Wallet, then 2 to 7. Everything in that division is counted as your trading.</p>
+        <div class="row">
+          <button type="button" class="primary" id="jRun" disabled>Load my trades</button>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="jResults" aria-labelledby="hJRes">
+        <h2 id="hJRes">What you actually made</h2>
+        <div class="summary six">
+          <div class="tile"><span class="k">Sales revenue</span><span class="v" id="jRev">–</span></div>
+          <div class="tile"><span class="k">Cost of what sold (Jita)</span><span class="v" id="jCogs">–</span></div>
+          <div class="tile"><span class="k">Hauling (est.)</span><span class="v" id="jHaul">–</span></div>
+          <div class="tile"><span class="k">Sales tax paid</span><span class="v" id="jTax">–</span></div>
+          <div class="tile"><span class="k">Broker fees paid</span><span class="v" id="jBroker">–</span></div>
+          <div class="tile"><span class="k">Net profit</span><span class="v" id="jNet">–</span></div>
+          <div class="tile"><span class="k">Unsold stock (at cost)</span><span class="v" id="jLeft">–</span></div>
+        </div>
+        <p class="callout-line" id="jFeeNote"></p>
+        <p class="hint">Per-item profit uses your average Jita buy price (up to 90 days of purchases), estimated hauling, and the sales tax and hub broker fee rates from the left panel. The tiles above use the taxes and broker fees actually charged in your wallets. "You sold / day" is your pace; "Hub sold / day" is the doctrine tracker's, if loaded. Hover "Left" to see how long the rest will take to sell.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr id="jThead"></tr></thead>
+            <tbody id="jTbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="jNote"></p>
       </section>
 
       <section class="panel hidden" id="resultsPanel" aria-labelledby="hRes">
