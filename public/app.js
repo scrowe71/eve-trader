@@ -1328,6 +1328,7 @@
         $("jNote").textContent += ` Courier contracts Jita → hub since the start: ${myHauls.length}, actually paid ${isk(paid)} (the estimate for everything bought is ${isk(est)}).`;
       }
 
+      if (show) await whereIsk(hauls);
       jSort = { key: "profit", dir: -1 };
       drawJournal();
       if (show) {
@@ -1506,6 +1507,49 @@
       frag.appendChild(row);
     });
     tb.appendChild(frag);
+  }
+
+  // ---------- where's my ISK ----------
+  async function whereIsk(hauls) {
+    const div = Math.min(7, Math.max(1, Math.round(settings.jCorpDiv || 1)));
+    const cid = settings.jCorpChar && chars[settings.jCorpChar] ? settings.jCorpChar
+      : (Object.values(chars).find((c) => hasWallet(c)) || {}).charId;
+    const costOf = new Map(jRows.filter((r) => r.avgBuy !== null).map((r) => [r.typeId, r.avgBuy + r.haulUnit]));
+    let wallet = null, listedCost = 0, listedValue = 0, listedOrders = 0, note = [];
+    if (cid && hasWallet(chars[cid])) {
+      try {
+        const corpId = (await esi(`/characters/${cid}/`)).data.corporation_id;
+        try {
+          const w = (await esi(`/corporations/${corpId}/wallets/`, { auth: true, charId: cid })).data;
+          const d = w.find((x) => x.division === div);
+          wallet = d ? d.balance : null;
+        } catch (e) { note.push(e.status === 403 ? "Wallet balance needs the Accountant role." : "Wallet balance: " + e.message); }
+        if (hasOrders(chars[cid])) {
+          try {
+            const ords = await allPages(`/corporations/${corpId}/orders/`, cid);
+            ords.filter((o) => !o.is_buy_order && hub && o.location_id === hub.id && (!o.wallet_division || o.wallet_division === div)).forEach((o) => {
+              listedOrders++;
+              listedValue += o.volume_remain * o.price;
+              listedCost += o.volume_remain * (costOf.get(o.type_id) || 0);
+            });
+          } catch (e) { note.push("Orders: " + e.message); }
+        } else note.push("Allow order access to see what's listed.");
+      } catch (e) { note.push(e.message); }
+    } else note.push("Add a character with wallet access to see the wallet balance.");
+
+    const stock = jRows.reduce((a, r) => a + r.leftIsk, 0);
+    const transit = (hauls || []).filter((h) => h.status === "outstanding" || h.status === "in_progress").reduce((a, h) => a + (h.collateral || 0), 0);
+    const hangar = Math.max(0, stock - listedCost - transit);
+    const keep = 1 - salesTax() - hubBroker();
+    $("iWallet").textContent = wallet === null ? "–" : isk(wallet);
+    $("iWalletK").textContent = `Wallet (division ${div})`;
+    $("iListed").textContent = isk(listedCost);
+    $("iListedNote").textContent = listedOrders ? `${listedOrders} orders · worth ${isk(listedValue * keep)} after fees if they all sell` : "no orders listed";
+    $("iTransit").textContent = isk(transit);
+    $("iHangar").textContent = isk(hangar);
+    $("iTotal").textContent = isk((wallet || 0) + stock);
+    $("iNote").textContent = "Stock is valued at what it cost you (Jita price + hauling); \"in transit\" uses the courier collateral; " +
+      "\"not listed yet\" is what's left after those, so it's approximate." + (note.length ? " " + note.join(" ") : "");
   }
 
   // ---------- corp wallet division auto-detect ----------
