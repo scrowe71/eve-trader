@@ -112,6 +112,9 @@ textarea { font: 13px var(--mono); color: var(--ink); background: var(--bg); bor
 .summary.isk5 { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 900px) { .summary.isk5 { grid-template-columns: 1fr 1fr; } }
 .banner.okbanner { background: color-mix(in srgb, var(--good) 10%, var(--bg)); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.chartbox { position: relative; height: 280px; }
+#rResults table { font-size: 12.5px; }
+#rResults td.name, #rResults th.name { text-align: left; font-family: var(--body); white-space: normal; }
 ul.tight { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 #jResults th, #jResults td { padding: 6px 5px; }
 #jResults th.name, #jResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 260px; font-family: var(--body); }
@@ -228,6 +231,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <button type="button" id="tabOrders" aria-pressed="false">Order check</button>
         <button type="button" id="tabLiq" aria-pressed="false">Liquidate</button>
         <button type="button" id="tabJournal" aria-pressed="false">Trade journal</button>
+        <button type="button" id="tabRep" aria-pressed="false">Reports</button>
       </div>
 
       <section class="panel" id="docPanel" aria-labelledby="hDoc">
@@ -337,6 +341,51 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <tbody id="sTbody"></tbody>
           </table>
         </div>
+      </section>
+
+      <section class="panel hidden" id="rPanel" aria-labelledby="hR">
+        <h2 id="hR">Reports</h2>
+        <p class="hint">Profit over any period, from your stored history (cloud) plus the live wallet. Uses the characters, corp wallet division and "Items to show" from the Trade journal tab.</p>
+        <div class="fields four">
+          <label>Period
+            <select id="rPreset">
+              <option value="7">Last 7 days</option><option value="30">Last 30 days</option>
+              <option value="60">Last 60 days</option><option value="90">Last 90 days</option>
+              <option value="week">This week</option><option value="month">This month</option>
+              <option value="lastmonth">Last month</option><option value="custom">Custom range</option>
+            </select>
+          </label>
+          <label>Group by
+            <select id="rGroup"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select>
+          </label>
+          <label>From<input id="rFrom" type="date" min="2026-11-06"></label>
+          <label>To<input id="rTo" type="date" min="2026-11-06"></label>
+        </div>
+        <div class="row"><button type="button" class="primary" id="rRun">Run report</button></div>
+      </section>
+
+      <section class="panel hidden" id="rResults" aria-labelledby="hRRes">
+        <h2 id="hRRes">Profit report</h2>
+        <p class="hint" id="rRangeLbl"></p>
+        <div class="summary">
+          <div class="tile"><span class="k">Profit</span><span class="v" id="rProfit">–</span><span class="k" id="rProfitNote"></span></div>
+          <div class="tile"><span class="k">Revenue</span><span class="v" id="rRevenue">–</span></div>
+          <div class="tile"><span class="k">Margin on sales</span><span class="v" id="rMargin">–</span></div>
+          <div class="tile"><span class="k">Profit per day</span><span class="v" id="rPerDay">–</span></div>
+          <div class="tile"><span class="k">Units sold</span><span class="v" id="rUnits">–</span></div>
+          <div class="tile"><span class="k">Sales tax paid</span><span class="v" id="rTax">–</span></div>
+          <div class="tile"><span class="k">Broker fees paid</span><span class="v" id="rBroker">–</span></div>
+          <div class="tile"><span class="k">Courier contracts</span><span class="v" id="rCourier">–</span><span class="k" id="rCourierNote"></span></div>
+        </div>
+        <div class="chartbox"><canvas id="rCanvas" aria-label="Profit and revenue by period"></canvas></div>
+        <p class="hint" id="rChartNote"></p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th class="name">Item</th><th>Units</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Return</th><th>Share of sales</th></tr></thead>
+            <tbody id="rTbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="rNote"></p>
       </section>
 
       <section class="panel hidden" id="lPanel" aria-labelledby="hL">

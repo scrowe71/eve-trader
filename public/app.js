@@ -50,10 +50,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dBudgetMode: "wallet", dReserve: 10,
+    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -1007,12 +1007,16 @@
   }
 
   function setTab(which) {
-    if (!["doc", "scan", "journal", "sell", "orders", "liq"].includes(which)) which = "doc";
+    if (!["doc", "scan", "journal", "sell", "orders", "liq", "rep"].includes(which)) which = "doc";
     const doc = which === "doc", scanT = which === "scan", jr = which === "journal", sl = which === "sell";
     $("tabDoc").setAttribute("aria-pressed", String(doc));
     $("tabScan").setAttribute("aria-pressed", String(scanT));
     $("tabJournal").setAttribute("aria-pressed", String(jr));
     $("tabSell").setAttribute("aria-pressed", String(sl));
+    const rp = which === "rep";
+    $("tabRep").setAttribute("aria-pressed", String(rp));
+    $("rPanel").classList.toggle("hidden", !rp);
+    $("rResults").classList.toggle("hidden", !rp || !rRows.length);
     const lq = which === "liq";
     $("tabLiq").setAttribute("aria-pressed", String(lq));
     $("lPanel").classList.toggle("hidden", !lq);
@@ -1211,7 +1215,7 @@
 
   // ---------- trade journal ----------
   let jRows = [];
-  let jRaw = { tx: [], hauls: [] };   // last journal read: unique transactions + courier contracts
+  let jRaw = { tx: [], hauls: [], journal: [] };   // last journal read: unique transactions + courier contracts
   let jSort = { key: "profit", dir: -1 };
 
   function renderChars() {
@@ -1359,7 +1363,7 @@
       // Unique transactions (corp + personal can overlap).
       const seen = new Set();
       const uniq = txs.filter((t) => (seen.has(t.transaction_id) ? false : (seen.add(t.transaction_id), true)));
-      jRaw = { tx: uniq, hauls };
+      jRaw = { tx: uniq, hauls, journal };
       // What was actually read, so it's clear why something is or isn't in the journal.
       const inRange = uniq.filter((t) => Date.parse(t.date) >= from);
       const newest = inRange.reduce((m, t) => Math.max(m, Date.parse(t.date)), 0);
@@ -1827,6 +1831,185 @@
     box.append(msg, b);
     box.classList.remove("hidden");
     return true;
+  }
+
+  // ---------- reports ----------
+  let rRows = [], rChart = null;
+
+  function reportRange() {
+    const now = new Date();
+    const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    let a, b = now.getTime();
+    const p = settings.rPreset;
+    if (/^\d+$/.test(p)) a = b - Number(p) * 86400000;
+    else if (p === "week") { const d = startOfDay(now); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); a = d.getTime(); }
+    else if (p === "month") a = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    else if (p === "lastmonth") { a = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(); b = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); }
+    else { // custom
+      a = settings.rFrom ? new Date(settings.rFrom + "T00:00:00").getTime() : PROJECT_START;
+      b = settings.rTo ? new Date(settings.rTo + "T00:00:00").getTime() + 86400000 : now.getTime();
+    }
+    return [Math.max(a, PROJECT_START), Math.min(b, now.getTime())];
+  }
+
+  function bucketKey(ms, group) {
+    const d = new Date(ms);
+    const pad = (n) => String(n).padStart(2, "0");
+    if (group === "month") return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    if (group === "week") {
+      const m = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+      return `Week of ${m.getFullYear()}-${pad(m.getMonth() + 1)}-${pad(m.getDate())}`;
+    }
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  // Profit for sales in [a, b): revenue - (Jita cost + hauling) - sales tax - broker fees charged in the range.
+  function reportFor(a, b, ctx) {
+    const { tx, costOf, taxBySale, feeEntries, jitaOnly, tax, group } = ctx;
+    const items = new Map(), buckets = new Map();
+    const bucket = (k) => { let x = buckets.get(k); if (!x) { x = { key: k, revenue: 0, profit: 0, fees: 0 }; buckets.set(k, x); } return x; };
+    let revenue = 0, cogs = 0, taxPaid = 0, units = 0, unknown = 0;
+    for (const t of tx) {
+      if (t.is_buy || !hub || t.location_id !== hub.id) continue;
+      const ms = Date.parse(t.date);
+      if (ms < a || ms >= b) continue;
+      const c = costOf.get(t.type_id);
+      if (jitaOnly && c === undefined) continue;
+      const rev = t.quantity * t.unit_price;
+      const tx$ = taxBySale.has(t.transaction_id) ? taxBySale.get(t.transaction_id) : rev * tax;
+      const cg = c !== undefined ? t.quantity * c : 0;
+      if (c === undefined) unknown++;
+      revenue += rev; cogs += cg; taxPaid += tx$; units += t.quantity;
+      const it = items.get(t.type_id) || { typeId: t.type_id, units: 0, revenue: 0, cogs: 0, tax: 0 };
+      it.units += t.quantity; it.revenue += rev; it.cogs += cg; it.tax += tx$;
+      items.set(t.type_id, it);
+      const bk = bucket(bucketKey(ms, group));
+      bk.revenue += rev; bk.profit += rev - cg - tx$;
+    }
+    let broker = 0;
+    for (const e of feeEntries) {
+      const ms = Date.parse(e.date);
+      if (ms < a || ms >= b) continue;
+      const f = -(e.amount || 0);
+      broker += f;
+      const bk = bucket(bucketKey(ms, group));
+      bk.fees += f; bk.profit -= f;
+    }
+    return { revenue, cogs, taxPaid, broker, units, unknown, profit: revenue - cogs - taxPaid - broker, items, buckets };
+  }
+
+  async function loadChartJs() {
+    if (window.Chart) return;
+    await new Promise((res, rej) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js";
+      sc.onload = res; sc.onerror = () => rej(new Error("Couldn't load the chart library."));
+      document.head.appendChild(sc);
+    });
+  }
+
+  async function runReport() {
+    if (!hub) { status("Pick your hub first.", "err"); return; }
+    $("rRun").disabled = true;
+    try {
+      status("Reading your trading history…", "busy");
+      await runJournal({ show: false });
+      const [a, b] = reportRange();
+      const tx = jRaw.tx;
+      // Cost per unit: average Jita 4-4 purchase price since the project start, plus estimated hauling.
+      const buy = new Map();
+      tx.forEach((t) => { if (t.is_buy && t.location_id === JITA_STATION && Date.parse(t.date) >= PROJECT_START) { const x = buy.get(t.type_id) || { q: 0, isk: 0 }; x.q += t.quantity; x.isk += t.quantity * t.unit_price; buy.set(t.type_id, x); } });
+      await volumes([...buy.keys()]);
+      const costOf = new Map([...buy.entries()].map(([id, x]) => { const avg = x.isk / x.q; return [id, avg + haulCost(volCache[id] || 0, avg)]; }));
+      const seenJ = new Set();
+      const jr = jRaw.journal.filter((e) => (seenJ.has(e.id) ? false : (seenJ.add(e.id), true)));
+      const taxBySale = new Map(jr.filter((e) => e.ref_type === "transaction_tax" && e.context_id).map((e) => [e.context_id, -(e.amount || 0)]));
+      const feeEntries = jr.filter((e) => (e.amount || 0) < 0 && /broker|scc|surcharge/i.test(e.ref_type || "") && Date.parse(e.date) >= PROJECT_START);
+      const ctx = { tx, costOf, taxBySale, feeEntries, jitaOnly: settings.jSource === "jita", tax: salesTax(), group: settings.rGroup };
+      const cur = reportFor(a, b, ctx);
+      const prev = reportFor(a - (b - a), a, ctx);
+      const hauls = (jRaw.hauls || []).filter((h) => h.start_location_id === JITA_STATION && h.end_location_id === hub.id && h.status !== "deleted" && h.status !== "rejected" && Date.parse(h.date_issued) >= a && Date.parse(h.date_issued) < b);
+      const courier = hauls.reduce((x, h) => x + (h.reward || 0), 0);
+      const days = Math.max(1, (b - a) / 86400000);
+
+      $("rRangeLbl").textContent = `${new Date(a).toLocaleString()} → ${new Date(b).toLocaleString()} (${days.toFixed(days < 10 ? 1 : 0)} days)`;
+      $("rProfit").textContent = isk(cur.profit);
+      $("rProfit").className = "v " + (cur.profit >= 0 ? "pos" : "neg");
+      const ch = prev.profit ? (cur.profit - prev.profit) / Math.abs(prev.profit) : null;
+      $("rProfitNote").textContent = prev.revenue || prev.broker
+        ? `${ch === null ? "" : (ch >= 0 ? "▲ " : "▼ ") + Math.abs(ch * 100).toFixed(0) + "% "}vs previous ${days.toFixed(0)} days (${isk(prev.profit)})`
+        : "no earlier period to compare";
+      $("rRevenue").textContent = isk(cur.revenue);
+      $("rMargin").textContent = cur.revenue ? pct(cur.profit / cur.revenue) : "–";
+      $("rPerDay").textContent = isk(cur.profit / days);
+      $("rUnits").textContent = intf(cur.units);
+      $("rTax").textContent = isk(cur.taxPaid);
+      $("rBroker").textContent = isk(cur.broker);
+      $("rCourier").textContent = isk(courier);
+      $("rCourierNote").textContent = `${hauls.length} contract${hauls.length === 1 ? "" : "s"} issued in range (already in item cost as an estimate)`;
+
+      // Chart
+      const keys = [...cur.buckets.keys()].sort();
+      try {
+        await loadChartJs();
+        const css = getComputedStyle(document.documentElement);
+        const col = (v) => css.getPropertyValue(v).trim();
+        if (rChart) rChart.destroy();
+        rChart = new Chart($("rCanvas"), {
+          data: {
+            labels: keys,
+            datasets: [
+              { type: "bar", label: "Profit", data: keys.map((k) => cur.buckets.get(k).profit / 1e6),
+                backgroundColor: keys.map((k) => (cur.buckets.get(k).profit >= 0 ? col("--good") : col("--bad"))), borderRadius: 3 },
+              { type: "line", label: "Revenue", data: keys.map((k) => cur.buckets.get(k).revenue / 1e6),
+                borderColor: col("--accent"), backgroundColor: col("--accent"), tension: 0.25, pointRadius: 3, yAxisID: "y" },
+            ],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: col("--muted") } },
+              tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}M ISK` } } },
+            scales: {
+              x: { ticks: { color: col("--muted") }, grid: { color: col("--line") } },
+              y: { ticks: { color: col("--muted"), callback: (v) => v + "M" }, grid: { color: col("--line") } },
+            },
+          },
+        });
+      } catch (e) { $("rChartNote").textContent = e.message; }
+
+      // Items
+      await names([...cur.items.keys()]);
+      rRows = [...cur.items.values()].map((it) => ({
+        ...it, name: nameCache[it.typeId] || "Type " + it.typeId,
+        profit: it.revenue - it.cogs - it.tax - it.revenue * hubBroker(),
+        roi: it.cogs ? (it.revenue - it.cogs - it.tax - it.revenue * hubBroker()) / it.cogs : null,
+        share: cur.revenue ? it.revenue / cur.revenue : 0,
+      })).sort((x, y) => y.profit - x.profit);
+      const tb = $("rTbody");
+      tb.innerHTML = "";
+      rRows.forEach((r) => {
+        const tr = document.createElement("tr");
+        const add = (v, cls) => { const td = document.createElement("td"); if (cls) td.className = cls; td.textContent = v; tr.appendChild(td); return td; };
+        add(r.name, "name"); add(intf(r.units)); add(isk(r.revenue)); add(isk(r.cogs));
+        const p = add(isk(r.profit)); p.className = r.profit >= 0 ? "pos" : "neg";
+        add(r.roi === null ? "–" : pct(r.roi)); add(pct(r.share));
+        tb.appendChild(tr);
+      });
+      $("rNote").textContent = (cur.unknown ? `${cur.unknown} sale(s) have no Jita purchase on record and count at zero cost. ` : "") +
+        "Per-item profit uses your hub broker fee rate as an estimate; the totals above use the broker fees actually charged in the range.";
+      $("rResults").classList.remove("hidden");
+      status(`Report ready: ${isk(cur.profit)} profit on ${isk(cur.revenue)} of sales.`, "ok");
+    } catch (e) {
+      scanError(e);
+    } finally {
+      $("rRun").disabled = false;
+    }
+  }
+
+  function syncReportInputs() {
+    const custom = settings.rPreset === "custom";
+    $("rFrom").closest("label").classList.toggle("hidden", !custom);
+    $("rTo").closest("label").classList.toggle("hidden", !custom);
   }
 
   // ---------- liquidation planner ----------
@@ -2436,6 +2619,10 @@
     $("tabOrders").addEventListener("click", () => setTab("orders"));
     $("syncBtn").addEventListener("click", () => syncFromGame(false).then((ok) => ok && status("Skills and open orders updated from the game.", "ok")));
     $("tabLiq").addEventListener("click", () => setTab("liq"));
+    $("tabRep").addEventListener("click", () => setTab("rep"));
+    $("rRun").addEventListener("click", runReport);
+    $("rPreset").addEventListener("change", syncReportInputs);
+    syncReportInputs();
     $("lRun").addEventListener("click", runLiquidate);
     try { $("lPaste").value = localStorage.getItem("liqPaste") || ""; } catch {}
     $("oRun").addEventListener("click", runOrders);

@@ -144,6 +144,16 @@ Check your orders as often as you like. **Order check** tells you which sell ord
 
 It reads open orders with the characters on the Trade journal tab. They now also ask for `esi-markets.read_character_orders.v1` and `esi-markets.read_corporation_orders.v1`, so add those to your EVE app and click **Allow order access** next to each character. Corp orders need the **Accountant** or **Trader** role.
 
+## Reports
+
+The **Reports** tab shows profit over the last 7, 30, 60 or 90 days, this week, this month, last month, or a custom date range, grouped by day, week or month in a chart. It shows:
+
+- **Totals:** revenue, profit, margin, profit per day, units, the sales tax and broker fees actually charged in the range, and courier contract spend.
+- **Comparison:** profit against the previous period of the same length.
+- **Per item:** units, revenue, cost, profit, return and share of sales.
+
+It reads the cloud history, so ranges older than CCP's 30 days work, plus the live wallet for the latest sales. Item cost is the average Jita 4-4 purchase price plus estimated hauling.
+
 ## Trade journal
 
 The **Trade journal** tab reads your real buys, sales, sales tax and broker fees from your wallets and shows what each item actually made.
