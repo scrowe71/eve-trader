@@ -1192,6 +1192,16 @@
       // Unique transactions (corp + personal can overlap).
       const seen = new Set();
       const uniq = txs.filter((t) => (seen.has(t.transaction_id) ? false : (seen.add(t.transaction_id), true)));
+      // What was actually read, so it's clear why something is or isn't in the journal.
+      const inRange = uniq.filter((t) => Date.parse(t.date) >= from);
+      const newest = inRange.reduce((m, t) => Math.max(m, Date.parse(t.date)), 0);
+      const sales = inRange.filter((t) => !t.is_buy);
+      const salesHub = hub ? sales.filter((t) => t.location_id === hub.id).length : sales.length;
+      const diag = `Read ${intf(inRange.length)} wallet transactions since ${new Date(from).toLocaleString()}: ` +
+        `${intf(inRange.length - sales.length)} buys, ${intf(sales.length)} sales` +
+        (hub ? ` (${intf(salesHub)} at ${hub.system || "the hub"})` : "") +
+        (newest ? `. Newest one: ${new Date(newest).toLocaleString()}.` : ".") +
+        " CCP updates wallet data for apps about once an hour, so very recent sales can be missing for up to an hour. ";
 
       const onlyHub = settings.jWhere === "hub" && hub;
       const jitaOnly = settings.jSource === "jita";
@@ -1284,7 +1294,7 @@
       const missing = sold.filter((r) => r.avgBuy === null).length;
       $("jNote").textContent =
         (missing ? `${missing} item${missing === 1 ? " has" : "s have"} sales but no purchase in the wallets I read, so their profit is blank (bought with a character or corp division you didn't include, or more than 90 days ago). ` : "") +
-        "Hauling is estimated from your hauling settings (express fee not included). \"Left\" is bought minus sold across the wallet history read, so it's approximate." + corpNote;
+        diag + "Hauling is estimated from your hauling settings (express fee not included). \"Left\" is bought minus sold across the wallet history read, so it's approximate." + corpNote;
       const myHauls = hauls.filter((h) => (!hub || h.end_location_id === hub.id) && h.start_location_id === JITA_STATION && h.status !== "deleted" && h.status !== "rejected");
       if (myHauls.length) {
         const paid = myHauls.reduce((a, h) => a + (h.reward || 0), 0);
@@ -1296,7 +1306,7 @@
       drawJournal();
       if (show) {
         $("jResults").classList.remove("hidden");
-        status(`Journal ready: ${sold.length} items sold in the last ${days} days, ${isk(net)} net after actual fees.${corpNote}`, "ok");
+        status(`Journal ready (${intf(sales.length)} sales read, newest transaction ${newest ? new Date(newest).toLocaleString() : "none"}): ${sold.length} items sold in the last ${days} days, ${isk(net)} net after actual fees.${corpNote}`, "ok");
       }
       return true;
     } catch (e) {
@@ -1510,6 +1520,12 @@
       const { orders, notes, who } = await myOpenOrders();
       if (!who.length) throw new Error("Add a character on the Trade journal tab (Add a character) — it now also asks for order access. Characters added before need \"Allow wallet access\" again.");
       const sells = orders.filter((o) => !o.is_buy_order && o.location_id === hub.id);
+      const divs = [...new Set(sells.filter((o) => o.wallet_division).map((o) => o.wallet_division))];
+      const jDiv = Math.round(settings.jCorpDiv || 1);
+      if (divs.length && (divs.length > 1 || divs[0] !== jDiv)) {
+        notes.push(`Heads up: your hub sell orders pay into corp wallet division ${divs.join(" and ")}, but the Trade journal reads division ${jDiv}. ` +
+          `Set "Corp wallet division" on the Trade journal tab to ${divs[0]} or those sales won't show up there.`);
+      }
       if (!sells.length) { oRows = []; drawOrders(); status("No open sell orders at the hub." + (notes.length ? " " + notes.join(" ") : ""), "ok"); return; }
 
       status("Downloading hub orders…", "busy");
