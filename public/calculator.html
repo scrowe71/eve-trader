@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVE Trade Profit Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: settings column on the left, the trade and its verdict on the right; stacks on phones. */
+  --bg: #0d1218;
+  --panel: #151d26;
+  --line: #263341;
+  --ink: #dbe4ec;
+  --muted: #8a9aab;
+  --accent: #e0a645;
+  --good: #4fbf7f;
+  --warn: #d9b23f;
+  --bad: #e0605a;
+  --display: "Rajdhani", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 48px; display: grid; gap: 20px; }
+header h1 { font-family: var(--display); font-weight: 700; font-size: 32px; letter-spacing: .02em; margin: 0; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
+.grid { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+.col { display: grid; gap: 20px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; display: grid; gap: 12px; }
+.panel h2 { font-family: var(--display); font-weight: 600; font-size: 19px; letter-spacing: .04em; text-transform: uppercase; margin: 0; color: var(--accent); }
+.panel h3 { font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: .05em; text-transform: uppercase; margin: 4px 0 0; color: var(--muted); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.fields.three { grid-template-columns: repeat(3, 1fr); }
+.fields.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 420px) { .fields, .fields.three, .fields.four { grid-template-columns: 1fr 1fr; } }
+label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+label.full { grid-column: 1 / -1; }
+input, select { font: 500 14px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 7px 8px; width: 100%; font-variant-numeric: tabular-nums; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { flex: 1; font: 600 13px var(--body); padding: 8px 6px; background: var(--bg); color: var(--muted); border: 0; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #1a1406; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+.derived { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 13px; padding: 10px 12px; background: var(--bg); border-radius: 4px; border: 1px solid var(--line); }
+.derived span:nth-child(even) { font-family: var(--mono); text-align: right; color: var(--ink); }
+.derived span:nth-child(odd) { color: var(--muted); }
+.hidden { display: none !important; }
+
+.verdict { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 640px) { .verdict { grid-template-columns: 1fr 1fr; } }
+.tile { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; display: grid; gap: 2px; }
+.tile .k { font-size: 12px; color: var(--muted); }
+.tile .v { font: 600 22px var(--display); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.tile .s { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.pill { display: inline-block; font: 600 12px var(--body); padding: 3px 10px; border-radius: 99px; letter-spacing: .03em; }
+.pill.good { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+.pill.warn { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.pill.bad { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.headline { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.headline .msg { font-size: 14px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; }
+td.num { font-family: var(--mono); }
+tr.total td { font-weight: 600; border-bottom: 0; border-top: 2px solid var(--line); }
+.neg { color: var(--bad); }
+.pos { color: var(--good); }
+.bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; }
+
+.relist-out { display: grid; gap: 8px; font-size: 14px; }
+.relist-out .row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--bg); border-radius: 4px; border-left: 3px solid var(--line); }
+.relist-out .row.best { border-left-color: var(--good); }
+.relist-out .row b { font-family: var(--mono); font-weight: 500; }
+.callout { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--bg); border-radius: 0 4px 4px 0; font-size: 13.5px; }
+.callout strong { color: var(--accent); }
+footer { color: var(--muted); font-size: 12px; max-width: 80ch; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Trade Profit Calculator</h1>
+    <p>Enter the prices and it works out every fee: broker fees, sales tax, the cost of each order update, and hauling. It tells you whether the trade is worth doing and how many order updates you can make before the profit is gone.</p>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <section class="panel" aria-labelledby="sk">
+        <h2 id="sk">Your skills</h2>
+        <div class="fields three">
+          <label>Accounting<input id="acc" type="number" min="0" max="5" value="5"></label>
+          <label>Broker Rel.<input id="br" type="number" min="0" max="5" value="5"></label>
+          <label>Adv. Broker Rel.<input id="abr" type="number" min="0" max="5" value="4"></label>
+        </div>
+        <div class="derived">
+          <span>Sales tax (every sale)</span><span id="dTax">–</span>
+          <span>Each order update costs</span><span id="dRelistPct">–</span>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="mk">
+        <h2 id="mk">Markets</h2>
+        <h3>Where you buy</h3>
+        <div class="fields">
+          <label class="full">Market type
+            <select id="buyType"><option value="npc">NPC station (Jita 4-4)</option><option value="upwell">Player structure</option></select>
+          </label>
+          <label class="npcB">Faction standing<input id="buyFac" type="number" step="0.01" min="-10" max="10" value="0"></label>
+          <label class="npcB">Corp standing<input id="buyCorp" type="number" step="0.01" min="-10" max="10" value="0"></label>
+          <label class="upB full hidden">Structure broker fee %<input id="buyUp" type="number" step="0.01" min="0" value="1.0"></label>
+        </div>
+        <div class="derived"><span>Broker fee here</span><span id="dBuyBF">–</span></div>
+
+        <div id="sellMarketBlock" class="fields" style="margin-top:6px">
+          <h3 class="full" style="grid-column:1/-1">Where you sell</h3>
+          <label class="full">Market type
+            <select id="sellType"><option value="upwell">Player structure (null staging)</option><option value="npc">NPC station</option></select>
+          </label>
+          <label class="npcS hidden">Faction standing<input id="sellFac" type="number" step="0.01" min="-10" max="10" value="0"></label>
+          <label class="npcS hidden">Corp standing<input id="sellCorp" type="number" step="0.01" min="-10" max="10" value="0"></label>
+          <label class="upS full">Structure broker fee %<input id="sellUp" type="number" step="0.01" min="0" value="1.0"></label>
+        </div>
+        <div class="derived" id="sellDerived"><span>Broker fee here</span><span id="dSellBF">–</span></div>
+        <p class="hint">For a player structure, use the broker fee % the sell window shows in game. Owners set their own rate, so it differs between structures.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="sl">
+        <h2 id="sl">Order slots</h2>
+        <div class="fields four">
+          <label>Trade<input id="sTrade" type="number" min="0" max="5" value="4"></label>
+          <label>Retail<input id="sRetail" type="number" min="0" max="5" value="0"></label>
+          <label>Wholesale<input id="sWhole" type="number" min="0" max="5" value="0"></label>
+          <label>Tycoon<input id="sTyc" type="number" min="0" max="5" value="0"></label>
+        </div>
+        <div class="derived">
+          <span>Open orders allowed</span><span id="dSlots">–</span>
+          <span>ISK per slot (of your stack)</span><span id="dPerSlot">–</span>
+        </div>
+        <label>Trading capital (ISK)<input id="capital" type="number" step="1000000" value="10000000000"></label>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel" aria-labelledby="tr">
+        <div class="headline">
+          <h2 id="tr">The trade</h2>
+          <div class="seg" role="group" aria-label="Trade type">
+            <button type="button" id="mImport" aria-pressed="true">Import (haul it)</button>
+            <button type="button" id="mStation" aria-pressed="false">Station trade</button>
+          </div>
+        </div>
+        <p class="hint">The numbers below are an example. Replace them with a real item.</p>
+        <div class="fields four">
+          <label class="full">Item (your label)<input id="item" type="text" value="Example: doctrine module"></label>
+          <label>Quantity<input id="qty" type="number" min="1" value="20"></label>
+          <label>Volume per unit (m³)<input id="vol" type="number" step="0.01" min="0" value="10"></label>
+          <label>Buy price each<input id="buyP" type="number" step="1000" value="9500000"></label>
+          <label>Sell price each<input id="sellP" type="number" step="1000" value="12000000"></label>
+        </div>
+
+        <h3>Buying</h3>
+        <div class="fields three">
+          <label>How you buy
+            <select id="buyHow"><option value="order">Buy order</option><option value="instant">Buy now (from sell orders)</option></select>
+          </label>
+          <label class="bOrd">Price updates you expect<input id="bUpd" type="number" min="0" value="3"></label>
+          <label class="bOrd">Price raised per update (each)<input id="bStep" type="number" step="100" min="0" value="10000"></label>
+        </div>
+
+        <div id="haulBlock">
+          <h3>Hauling (alliance service)</h3>
+          <div class="fields three">
+            <label>Rate (ISK per m³)<input id="hRate" type="number" step="50" min="0" value="800"></label>
+            <label>Collateral fee %<input id="hColl" type="number" step="0.1" min="0" value="1"></label>
+            <label>Flat fee per contract<input id="hFlat" type="number" step="100000" min="0" value="0"></label>
+          </div>
+        </div>
+
+        <h3>Selling</h3>
+        <div class="fields three">
+          <label>How you sell
+            <select id="sellHow"><option value="order">Sell order</option><option value="instant">Sell now (into buy orders)</option></select>
+          </label>
+          <label class="sOrd">Price updates you expect<input id="sUpd" type="number" min="0" value="3"></label>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="rs">
+        <div class="headline">
+          <h2 id="rs">Result</h2>
+          <span id="pill" class="pill">–</span>
+        </div>
+        <div class="verdict">
+          <div class="tile"><span class="k">Net profit</span><span class="v" id="tNet">–</span><span class="s" id="tNetEach">–</span></div>
+          <div class="tile"><span class="k">Return on ISK spent</span><span class="v" id="tRoi">–</span><span class="s" id="tMargin">–</span></div>
+          <div class="tile"><span class="k">Break-even sell price</span><span class="v" id="tBe">–</span><span class="s">per unit, with your updates</span></div>
+          <div class="tile"><span class="k">Sell updates you can afford</span><span class="v" id="tUpd">–</span><span class="s">before profit hits zero</span></div>
+        </div>
+        <div class="bar" id="bar" aria-hidden="true"></div>
+        <table>
+          <thead><tr><th>Line</th><th>ISK</th><th>% of sale</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="msg callout" id="advice"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="rl">
+        <h2 id="rl">Should I update this order?</h2>
+        <p class="hint">Check before you click Modify. It compares updating the order with cancelling it and placing a new one.</p>
+        <div class="fields four">
+          <label>Order side
+            <select id="rSide"><option value="sell">Sell order</option><option value="buy">Buy order</option></select>
+          </label>
+          <label>Units left<input id="rQty" type="number" min="1" value="20"></label>
+          <label>Current price<input id="rOld" type="number" step="1000" value="12000000"></label>
+          <label>New price<input id="rNew" type="number" step="1000" value="11990000"></label>
+        </div>
+        <div class="relist-out" id="relistOut"></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    Formulas used. Sales tax = 7.5% × (1 − 0.11 × Accounting). NPC broker fee = 3% − 0.3% × Broker Relations − 0.03% × faction standing − 0.02% × corp standing, minimum 1%. Order update = (1 − (50% + 6% × Adv. Broker Relations)) × broker fee × new order value, plus the full broker fee on any increase in order value. Order slots = 5 + 4×Trade + 8×Retail + 16×Wholesale + 32×Tycoon. Sources: <a href="https://wiki.eveuniversity.org/Trade">EVE University: Trade</a>, <a href="https://wiki.eveuniversity.org/Tax">EVE University: Tax</a>. Check them against your in-game market window after any patch. Your inputs are saved in this browser.
+  </footer>
+</div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const num = id => { const v = parseFloat($(id).value); return isFinite(v) ? v : 0; };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  let mode = "import";
+
+  function isk(v) {
+    const a = Math.abs(v), s = v < 0 ? "−" : "";
+    if (a >= 1e9) return s + (a / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return s + (a / 1e6).toFixed(2) + "M";
+    if (a >= 1e3) return s + (a / 1e3).toFixed(1) + "k";
+    return s + a.toFixed(0);
+  }
+  const full = v => (v < 0 ? "−" : "") + Math.round(Math.abs(v)).toLocaleString("en-US");
+  const pct = (v, d = 2) => (v * 100).toFixed(d) + "%";
+
+  // Pure fee math
+  function salesTax(acc) { return 0.075 * (1 - 0.11 * clamp(acc, 0, 5)); }
+  function npcBroker(br, fac, corp) { return Math.max(0.01, 0.03 - 0.003 * clamp(br, 0, 5) - 0.0003 * fac - 0.0002 * corp); }
+  function relistRate(abr) { return 1 - (0.5 + 0.06 * clamp(abr, 0, 5)); }
+  function updateCost(bf, abr, oldVal, newVal) { return Math.max(100, relistRate(abr) * bf * newVal + bf * Math.max(newVal - oldVal, 0)); }
+
+  function brokerFor(side) {
+    if (side === "buy") return $("buyType").value === "npc" ? npcBroker(num("br"), num("buyFac"), num("buyCorp")) : num("buyUp") / 100;
+    if (mode === "station") return brokerFor("buy");
+    return $("sellType").value === "npc" ? npcBroker(num("br"), num("sellFac"), num("sellCorp")) : num("sellUp") / 100;
+  }
+
+  function syncVisibility() {
+    const bNpc = $("buyType").value === "npc";
+    document.querySelectorAll(".npcB").forEach(e => e.classList.toggle("hidden", !bNpc));
+    document.querySelectorAll(".upB").forEach(e => e.classList.toggle("hidden", bNpc));
+    const sNpc = $("sellType").value === "npc";
+    document.querySelectorAll(".npcS").forEach(e => e.classList.toggle("hidden", !sNpc));
+    document.querySelectorAll(".upS").forEach(e => e.classList.toggle("hidden", sNpc));
+    const st = mode === "station";
+    $("sellMarketBlock").classList.toggle("hidden", st);
+    $("sellDerived").classList.toggle("hidden", st);
+    $("haulBlock").classList.toggle("hidden", st);
+    document.querySelectorAll(".bOrd").forEach(e => e.classList.toggle("hidden", $("buyHow").value !== "order"));
+    document.querySelectorAll(".sOrd").forEach(e => e.classList.toggle("hidden", $("sellHow").value !== "order"));
+    $("mImport").setAttribute("aria-pressed", String(!st));
+    $("mStation").setAttribute("aria-pressed", String(st));
+  }
+
+  function calc() {
+    syncVisibility();
+    const acc = num("acc"), abr = num("abr");
+    const tax = salesTax(acc), rr = relistRate(abr);
+    const bfB = brokerFor("buy"), bfS = brokerFor("sell");
+    $("dTax").textContent = pct(tax, 3);
+    $("dRelistPct").textContent = pct(rr * bfB, 3) + " of order value";
+    $("dBuyBF").textContent = pct(bfB);
+    $("dSellBF").textContent = pct(bfS);
+
+    const slots = 5 + 4 * num("sTrade") + 8 * num("sRetail") + 16 * num("sWhole") + 32 * num("sTyc");
+    $("dSlots").textContent = slots;
+    $("dPerSlot").textContent = isk(num("capital") / slots);
+
+    const q = Math.max(1, num("qty")), bp = num("buyP"), sp = num("sellP"), vol = num("vol");
+    const buyVal = bp * q, sellVal = sp * q;
+    const rows = [];
+    rows.push(["Sale revenue", sellVal, "rev"]);
+    rows.push(["Item cost", -buyVal, "cost"]);
+
+    let buyFees = 0;
+    if ($("buyHow").value === "order") {
+      const place = Math.max(100, bfB * buyVal);
+      rows.push(["Broker fee: placing buy order", -place, "fee"]);
+      const n = Math.max(0, Math.round(num("bUpd"))), step = num("bStep");
+      let upd = 0, price = bp - n * step;
+      // Model: order starts lower and is raised n times to reach the final buy price.
+      for (let i = 0; i < n; i++) { const o = price * q, nv = (price + step) * q; upd += updateCost(bfB, abr, o, nv); price += step; }
+      if (n > 0) rows.push(["Buy order updates (" + n + "×)", -upd, "fee"]);
+      buyFees = place + upd;
+    }
+
+    let haul = 0;
+    if (mode === "import") {
+      haul = num("hRate") * vol * q + (num("hColl") / 100) * buyVal + num("hFlat");
+      rows.push(["Hauling (" + full(vol * q) + " m³)", -haul, "haul"]);
+    }
+
+    let sellFees = 0, perUpd = 0, sN = 0;
+    if ($("sellHow").value === "order") {
+      const place = Math.max(100, bfS * sellVal);
+      rows.push(["Broker fee: placing sell order", -place, "fee"]);
+      sN = Math.max(0, Math.round(num("sUpd")));
+      perUpd = Math.max(100, rr * bfS * sellVal);
+      if (sN > 0) rows.push(["Sell order updates (" + sN + "×)", -perUpd * sN, "fee"]);
+      sellFees = place + perUpd * sN;
+    }
+    const taxAmt = tax * sellVal;
+    rows.push(["Sales tax", -taxAmt, "tax"]);
+
+    const net = sellVal - buyVal - buyFees - haul - sellFees - taxAmt;
+    const spent = buyVal + buyFees + haul;
+    const roi = spent > 0 ? net / spent : 0;
+    const margin = sellVal > 0 ? net / sellVal : 0;
+
+    // Break-even sell price per unit
+    const sellRate = tax + ($("sellHow").value === "order" ? bfS * (1 + rr * sN) : 0);
+    const be = (spent / q) / Math.max(1e-9, 1 - sellRate);
+
+    const afford = ($("sellHow").value === "order" && perUpd > 0) ? Math.floor((net + perUpd * sN) / perUpd) : null;
+
+    $("tNet").textContent = isk(net);
+    $("tNet").className = "v " + (net >= 0 ? "pos" : "neg");
+    $("tNetEach").textContent = isk(net / q) + " per unit";
+    $("tRoi").textContent = pct(roi, 1);
+    $("tMargin").textContent = "margin on sale " + pct(margin, 1);
+    $("tBe").textContent = isk(be);
+    $("tUpd").textContent = afford === null ? "n/a" : (afford < 0 ? "0" : String(afford));
+
+    const pill = $("pill");
+    if (net <= 0) { pill.className = "pill bad"; pill.textContent = "Losing trade"; }
+    else if (roi < 0.08) { pill.className = "pill warn"; pill.textContent = "Thin margin"; }
+    else { pill.className = "pill good"; pill.textContent = "Worth doing"; }
+
+    const tb = $("rows"); tb.innerHTML = "";
+    rows.forEach(([name, v]) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td></td><td class='num'></td><td class='num'></td>";
+      tr.children[0].textContent = name;
+      tr.children[1].textContent = full(v);
+      tr.children[1].className = "num " + (v < 0 ? "neg" : "");
+      tr.children[2].textContent = sellVal ? pct(Math.abs(v) / sellVal, 2) : "–";
+      tb.appendChild(tr);
+    });
+    const tt = document.createElement("tr"); tt.className = "total";
+    tt.innerHTML = "<td>Net profit</td><td class='num'></td><td class='num'></td>";
+    tt.children[1].textContent = full(net); tt.children[1].className = "num " + (net >= 0 ? "pos" : "neg");
+    tt.children[2].textContent = sellVal ? pct(net / sellVal, 2) : "–";
+    tb.appendChild(tt);
+
+    // Where the money goes bar
+    const parts = [
+      [buyVal, "#4a6178"], [buyFees + sellFees, "#e0a645"], [taxAmt, "#c77b3d"], [haul, "#6f8fb0"], [Math.max(net, 0), "#4fbf7f"]
+    ];
+    const tot = parts.reduce((a, p) => a + p[0], 0) || 1;
+    $("bar").innerHTML = parts.map(p => "<i style='width:" + (p[0] / tot * 100).toFixed(2) + "%;background:" + p[1] + "'></i>").join("");
+
+    const feeTotal = buyFees + sellFees + taxAmt + haul;
+    let adv = "";
+    if (net <= 0) adv = "<strong>Skip it.</strong> Fees, tax and hauling come to " + isk(feeTotal) + ", which is more than the spread. You'd need to sell above " + isk(be) + " each to break even.";
+    else {
+      adv = "<strong>Fees eat " + pct(feeTotal / (sellVal - buyVal || 1), 0) + " of the spread.</strong> ";
+      if (afford !== null) {
+        const used = sN;
+        adv += "Each sell-order update costs " + isk(perUpd) + ". ";
+        adv += used >= afford * 0.5 && afford > 0
+          ? "Your planned " + used + " updates use a big share of the profit. Set the price once and check it a few times a day, not every few minutes."
+          : "You could update about " + afford + " times before the trade stops paying. Keep it well under that.";
+      }
+    }
+    $("advice").innerHTML = adv;
+
+    relist();
+    save();
+  }
+
+  function relist() {
+    const side = $("rSide").value;
+    const bf = side === "buy" ? brokerFor("buy") : brokerFor("sell");
+    const abr = num("abr"), q = Math.max(1, num("rQty"));
+    const oldV = num("rOld") * q, newV = num("rNew") * q;
+    const modify = updateCost(bf, abr, oldV, newV);
+    const fresh = Math.max(100, bf * newV);
+    const better = modify <= fresh ? "modify" : "fresh";
+    const diffEach = Math.abs(num("rNew") - num("rOld"));
+    const out = $("relistOut");
+    out.innerHTML = "";
+    const row = (label, v, best) => {
+      const d = document.createElement("div"); d.className = "row" + (best ? " best" : "");
+      d.innerHTML = "<span></span><b></b>"; d.firstChild.textContent = label; d.lastChild.textContent = full(v) + " ISK";
+      out.appendChild(d);
+    };
+    row("Update the order", modify, better === "modify");
+    row("Cancel and place a new order", fresh, better === "fresh");
+    const note = document.createElement("p"); note.className = "hint";
+    const moved = diffEach * q;
+    note.textContent = diffEach > 0 && moved < modify
+      ? "This update costs " + isk(modify) + " but only moves the order value by " + isk(moved) + ". If someone undercuts you by 0.01 ISK, you don't have to answer straight away."
+      : "Updating is cheaper than starting over unless you raise the price a lot.";
+    out.appendChild(note);
+  }
+
+  const ids = ["acc","br","abr","buyType","buyFac","buyCorp","buyUp","sellType","sellFac","sellCorp","sellUp","sTrade","sRetail","sWhole","sTyc","capital","item","qty","vol","buyP","sellP","buyHow","bUpd","bStep","hRate","hColl","hFlat","sellHow","sUpd","rSide","rQty","rOld","rNew"];
+  function save() {
+    try { const o = { mode }; ids.forEach(i => o[i] = $(i).value); localStorage.setItem("eveTradeCalc", JSON.stringify(o)); } catch (e) {}
+  }
+  function load() {
+    try { const o = JSON.parse(localStorage.getItem("eveTradeCalc") || "null"); if (!o) return; ids.forEach(i => { if (o[i] !== undefined) $(i).value = o[i]; }); if (o.mode) mode = o.mode; } catch (e) {}
+  }
+
+  load();
+  ids.forEach(i => { $(i).addEventListener("input", calc); $(i).addEventListener("change", calc); });
+  $("mImport").addEventListener("click", () => { mode = "import"; calc(); });
+  $("mStation").addEventListener("click", () => { mode = "station"; calc(); });
+  calc();
+})();
+</script>
+</body>
+</html>

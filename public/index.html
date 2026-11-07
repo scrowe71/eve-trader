@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVE Import Finder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: settings column left, hub picker + results right; stacks on phones. */
+  --bg: #0d1218;
+  --panel: #151d26;
+  --line: #263341;
+  --ink: #dbe4ec;
+  --muted: #8a9aab;
+  --accent: #e0a645;
+  --good: #4fbf7f;
+  --warn: #d9b23f;
+  --bad: #e0605a;
+  --display: "Rajdhani", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+a { color: var(--accent); }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 20px 48px; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+header h1 { font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: .02em; margin: 0; }
+header nav { display: flex; gap: 14px; align-items: center; font-size: 14px; }
+.who { display: flex; gap: 10px; align-items: center; }
+.who img { width: 32px; height: 32px; border-radius: 4px; border: 1px solid var(--line); }
+.grid { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.col { display: grid; gap: 20px; min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; display: grid; gap: 12px; min-width: 0; }
+.panel h2 { font-family: var(--display); font-weight: 600; font-size: 19px; letter-spacing: .04em; text-transform: uppercase; margin: 0; color: var(--accent); }
+.panel h3 { font-family: var(--display); font-weight: 600; font-size: 14px; letter-spacing: .05em; text-transform: uppercase; margin: 2px 0 0; color: var(--muted); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.fields.three { grid-template-columns: repeat(3, 1fr); }
+label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+label.full { grid-column: 1 / -1; }
+input, select { font: 500 14px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 7px 8px; width: 100%; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button { font: 600 14px var(--body); border-radius: 4px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+button.primary { background: var(--accent); color: #1a1406; border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+.row > label { flex: 1; min-width: 180px; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+.status { font-size: 13.5px; padding: 8px 12px; border-radius: 4px; background: var(--bg); border-left: 3px solid var(--line); }
+.status[data-kind="busy"] { border-left-color: var(--accent); }
+.status[data-kind="ok"] { border-left-color: var(--good); }
+.status[data-kind="err"] { border-left-color: var(--bad); color: #f1b5b1; }
+.hubcard { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px 12px; background: var(--bg); border-radius: 4px; border: 1px solid var(--line); }
+.hubcard b { font-family: var(--display); font-size: 17px; letter-spacing: .02em; }
+.results-list { display: grid; gap: 6px; }
+.results-list button { text-align: left; font-weight: 500; }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
+th[aria-sort="descending"]::after { content: " ▾"; color: var(--accent); }
+th[aria-sort="ascending"]::after { content: " ▴"; color: var(--accent); }
+td { font-family: var(--mono); }
+td:first-child { font-family: var(--body); white-space: normal; min-width: 180px; }
+.pos { color: var(--good); }
+.neg { color: var(--bad); }
+.chip { display: inline-block; font: 600 11px var(--body); padding: 2px 8px; border-radius: 99px; }
+.chip.good { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+.chip.warn { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.chip.bad { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.copy { font-size: 11px; padding: 2px 6px; margin-left: 6px; }
+.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 640px) { .summary { grid-template-columns: 1fr 1fr; } }
+.tile { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; display: grid; gap: 2px; }
+.tile .k { font-size: 12px; color: var(--muted); }
+.tile .v { font: 600 22px var(--display); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.hidden { display: none !important; }
+.login-hero { display: grid; gap: 10px; max-width: 60ch; }
+footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Import Finder</h1>
+    <nav>
+      <a href="calculator.html">Profit calculator</a>
+      <div class="who hidden" id="who">
+        <img id="portrait" alt="">
+        <span id="charName"></span>
+        <button type="button" id="logout">Log out</button>
+      </div>
+      <button type="button" class="primary hidden" id="login">Log in with EVE Online</button>
+    </nav>
+  </header>
+
+  <div class="status" id="status" role="status" aria-live="polite">Loading…</div>
+
+  <section class="panel login-hero hidden" id="loginPanel">
+    <h2>Log in to read your hub</h2>
+    <p>Your alliance market is in a player structure, so CCP only shows its orders to a character who can dock there. Log in with that character. The login stays in this browser, and only this site and CCP see it.</p>
+    <p class="hint">The site asks for three permissions: read structure markets, search structures by name, and read structure names.</p>
+  </section>
+
+  <div class="grid" id="app">
+    <div class="col">
+      <section class="panel" aria-labelledby="hSkills">
+        <h2 id="hSkills">Skills &amp; fees</h2>
+        <div class="fields three">
+          <label>Accounting<input id="acc" type="number" min="0" max="5"></label>
+          <label>Broker Rel.<input id="br" type="number" min="0" max="5"></label>
+          <label>Adv. Broker<input id="abr" type="number" min="0" max="5"></label>
+        </div>
+        <div class="fields">
+          <label>Caldari State standing<input id="jFac" type="number" step="0.01"></label>
+          <label>Caldari Navy standing<input id="jCorp" type="number" step="0.01"></label>
+          <label class="full">Hub broker fee % (from the in-game sell window)<input id="hubFee" type="number" step="0.01" min="0"></label>
+        </div>
+        <h3>Hauling</h3>
+        <div class="fields">
+          <label>ISK per m³<input id="haulRate" type="number" step="50" min="0"></label>
+          <label>Collateral %<input id="coll" type="number" step="0.1" min="0"></label>
+        </div>
+        <h3>Filters</h3>
+        <div class="fields">
+          <label class="full">How you buy in Jita
+            <select id="buyHow"><option value="instant">Buy now (Jita lowest sell)</option><option value="order">Buy order (Jita highest buy)</option></select>
+          </label>
+          <label>Minimum return %<input id="minRoi" type="number" step="1"></label>
+          <label>Minimum Jita price<input id="minPrice" type="number" step="10000" min="0"></label>
+          <label class="full">Rows to show<input id="maxRows" type="number" min="10" max="500" step="10"></label>
+        </div>
+        <p class="hint" id="feeLine"></p>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel" aria-labelledby="hHub">
+        <h2 id="hHub">Your hub</h2>
+        <div class="hubcard hidden" id="hubCard">
+          <div><b id="hubName"></b><div class="hint" id="hubMeta"></div></div>
+          <button type="button" id="hubChange">Change</button>
+        </div>
+        <div id="hubPicker" class="hidden">
+          <div class="row">
+            <label>Search by structure name (at least 3 letters)<input id="hubSearch" type="text" placeholder="e.g. 1DQ1-A"></label>
+            <button type="button" id="hubSearchBtn">Search</button>
+          </div>
+          <div class="results-list" id="hubResults"></div>
+          <div class="row">
+            <label>Or paste a structure ID<input id="hubIdInput" type="text" inputmode="numeric" placeholder="1035466617946"></label>
+            <button type="button" id="hubIdBtn">Use this ID</button>
+          </div>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="scan" disabled>Scan for imports</button>
+          <button type="button" id="csv" disabled>Download CSV</button>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="resultsPanel" aria-labelledby="hRes">
+        <h2 id="hRes">Best imports right now</h2>
+        <div class="summary">
+          <div class="tile"><span class="k">Hub items scanned</span><span class="v" id="sItems">–</span></div>
+          <div class="tile"><span class="k">Profitable imports</span><span class="v" id="sGood">–</span></div>
+          <div class="tile"><span class="k">Top 10 profit per day of volume</span><span class="v" id="sTop">–</span></div>
+          <div class="tile"><span class="k">Prices as of</span><span class="v" id="sTime">–</span></div>
+        </div>
+        <p class="hint">Profit is per unit after Jita cost, hauling, the hub broker fee and sales tax. "Daily volume" is the average units traded per day over 30 days in the hub's whole region, so treat it as a rough guide. Sell price is the hub's current lowest sell, so you'd be listing at or just under it.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr id="thead"></tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    Hub orders come from ESI using your login. Jita prices come from Fuzzwork's market aggregates for Jita IV - Moon 4. Fees: sales tax = 7.5% × (1 − 0.11 × Accounting); NPC broker fee = 3% − 0.3% × Broker Relations − 0.03% × faction standing − 0.02% × corp standing, minimum 1%.
+  </footer>
+</div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
