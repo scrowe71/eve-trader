@@ -651,8 +651,8 @@
     { k: "rank", label: "#", f: intf },
     { k: "name", label: "Item" },
     { k: "cls", label: "Type" },
-    { k: "hubListed", label: "Hub listings" },
-    { k: "demand", label: "Sells / day", f: (v) => (v >= 100 ? intf(v) : v.toFixed(1)) },
+    { k: "hubListed", label: "Hub listed / sellers" },
+    { k: "demand", label: "Sold / day", f: (v) => (v >= 100 ? intf(v) : v.toFixed(1)) },
     { k: "daysLeft", label: "Days left", f: (v) => (isFinite(v) ? v.toFixed(1) : "–") },
     { k: "need", label: "Short by", f: intf },
     { k: "cost", label: "Jita avg cost", f: isk },
@@ -665,13 +665,17 @@
     { k: "totalProfit", label: "Profit", f: isk },
   ];
 
+  const docCols = () => DOC_COLS.filter((c) => c.k !== "cls" || settings.dClasses === "all");
+
   function drawDocTable() {
+    const cols = docCols();
     const tr = $("dThead");
     tr.innerHTML = "";
-    DOC_COLS.forEach((c) => {
+    cols.forEach((c) => {
       const th = document.createElement("th");
       th.textContent = c.label;
       th.tabIndex = 0;
+      if (c.k === "name") th.className = "name";
       if (c.k === docSort.key) th.setAttribute("aria-sort", docSort.dir < 0 ? "descending" : "ascending");
       const go = () => {
         if (docSort.key === c.k) docSort.dir = -docSort.dir;
@@ -696,9 +700,10 @@
     const frag = document.createDocumentFragment();
     rows.forEach((r) => {
       const row = document.createElement("tr");
-      DOC_COLS.forEach((c) => {
+      cols.forEach((c) => {
         const td = document.createElement("td");
         if (c.k === "name") {
+          td.className = "name";
           td.textContent = r.name;
         } else if (c.k === "cls") {
           const s = document.createElement("span");
@@ -714,7 +719,8 @@
             s.title = "No sell orders at the Keepstar. You'd be the only seller.";
             td.appendChild(s);
           } else {
-            td.textContent = `${intf(r.hubListed)} (${r.hubSellers} seller${r.hubSellers === 1 ? "" : "s"})`;
+            td.textContent = `${intf(r.hubListed)} / ${r.hubSellers}`;
+            td.title = `${intf(r.hubListed)} units listed by ${r.hubSellers} seller${r.hubSellers === 1 ? "" : "s"}`;
             if (r.hubSellers <= 2) td.className = "pos";
           }
         } else if (c.k === "roi") {
