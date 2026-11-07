@@ -50,10 +50,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -558,6 +558,27 @@
     return regionHist.data;
   }
 
+  // Hub-region daily sales over 30 days: mean and median of the days that traded, cached for the day.
+  // A mean far above the median means a few huge days are carrying the average (a burst, not steady demand).
+  let regionDaily = store.get("regionDaily", { date: "", region: 0, data: {} });
+  async function regionDailyStats(ids, regionId) {
+    if (regionDaily.date !== today || regionDaily.region !== regionId) regionDaily = { date: today, region: regionId, data: {} };
+    const need = ids.filter((id) => regionDaily.data[id] === undefined);
+    let done = 0;
+    await pool(need, 10, async (id) => {
+      try {
+        const h = (await esi(`/markets/${regionId}/history/?type_id=${id}`)).data;
+        const cut = Date.now() - 30 * 86400000;
+        const v = h.filter((x) => Date.parse(x.date) >= cut && x.volume > 0).map((x) => x.volume).sort((a, b) => a - b);
+        const median = v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : 0;
+        regionDaily.data[id] = { median, days: v.length, mean: v.reduce((a, x) => a + x, 0) / 30 };
+      } catch { regionDaily.data[id] = null; }
+      if (++done % 20 === 0) status(`Checking how steady sales are: ${done} of ${need.length}…`, "busy");
+    });
+    try { store.set("regionDaily", regionDaily); } catch {}
+    return regionDaily.data;
+  }
+
   // 30-day average Jita (The Forge) price per item, cached for the day.
   let jitaHist = store.get("jitaHist", { date: "", data: {} });
   async function jitaAvg30(ids) {
@@ -696,13 +717,15 @@
         }
       }
 
+      // Slow sellers only get stocked for a shorter stretch, so less ISK sits on the shelf.
+      const coverDays = (demand) => (settings.dSlowRate > 0 && settings.dSlowDays > 0 && demand < settings.dSlowRate ? Math.min(settings.dDays, settings.dSlowDays) : settings.dDays);
       const inTracker = new Set(doctrine.map((d) => d.typeId));
       let items = doctrine
         .filter((d) => settings.dClasses === "all" || d.cls === "Seeding" || !d.cls || restock.has(d.typeId))
         .map((d) => {
           const demand = pick === "a7" ? d.a7 : pick === "max" ? Math.max(d.a7, d.a30) : (d.a30 || d.a7);
           const sold = restock.get(d.typeId) || 0;
-          const need = Math.max(Math.ceil(settings.dDays * demand - d.stock), sold);
+          const need = Math.max(Math.ceil(coverDays(demand) * demand - d.stock), sold);
           return { ...d, demand, need, sold, daysLeft: demand > 0 ? d.stock / demand : Infinity };
         })
         .filter((d) => d.need > 0);
@@ -772,8 +795,10 @@
 
       const tax = salesTax(), bfH = hubBroker(), bfJ = jitaBroker();
       const minRoi = settings.dMinRoi / 100;
+      // With the cushion on, every unit must still clear the minimum return if Multibuy comes in at the allowance.
+      const cushion = settings.dCushion === "on" ? 1 + Math.max(0, settings.dTol || 0) / 100 : 1;
       const k = 1 - Math.min(100, Math.max(0, settings.haulDisc || 0)) / 100;   // hauling discount factor
-      const priced = [], skipped = { noJita: 0, lowRoi: 0, thin: 0, lowProfit: 0, slots: 0, budget: 0, spike: 0 }, spikeNames = [];
+      const priced = [], skipped = { noJita: 0, lowRoi: 0, thin: 0, lowProfit: 0, slots: 0, budget: 0, spike: 0, burst: 0, noBb: 0 }, spikeNames = [], burstNames = [];
 
       // Sold-out items: what they actually sold for in the hub's region over 30 days (caps the markup guess).
       const soldOutIds = items.filter((d) => { const h = agg.get(d.typeId); return !(h && h.sellMin < Infinity); }).map((d) => d.typeId);
@@ -794,10 +819,27 @@
         const sell = hubSell !== null ? hubSell : (hist > 0 ? Math.min(guess, hist) : guess);
         const vol = volCache[d.typeId] || 0;
         const buyFee = settings.buyHow === "order" ? bfJ * best : 0;
-        const spend = best + buyFee + haulCost(vol, best);
+        const spend = (best + buyFee) * cushion + haulCost(vol, best * cushion);
         const profit = sell * (1 - bfH - tax) - spend;
         if (spend <= 0 || profit / spend < minRoi) { skipped.lowRoi++; continue; }
         screened.push({ d, h, hubSell, sell, vol, best, hist });
+      }
+
+      // Burst check: if the usage you plan on is far above a normal trading day at the hub's region,
+      // a few big days are inflating it. Plan on the typical (median) day instead.
+      if (settings.dBurst > 0 && screened.length) {
+        status("Checking how steady sales are…", "busy");
+        const st = await regionDailyStats(screened.map((c) => c.d.typeId), hub.regionId);
+        for (let i = screened.length - 1; i >= 0; i--) {
+          const d = screened[i].d, x = st[d.typeId];
+          if (!x || !x.median || x.days < 3 || d.demand <= settings.dBurst * x.median) continue;
+          const nm = d.name || nameCache[d.typeId] || "Type " + d.typeId;
+          d.burst = { planned: d.demand, median: x.median, days: x.days };
+          d.demand = x.median;
+          d.need = Math.max(Math.ceil(coverDays(d.demand) * d.demand - d.stock), d.sold || 0);
+          burstNames.push(`${nm} (${intf(d.burst.planned)}/day → ${intf(x.median)})`);
+          if (d.need <= 0) { screened.splice(i, 1); skipped.burst++; }
+        }
       }
 
       // Pass 2: walk Jita 4-4's real sell orders (buy-now mode) so big quantities
@@ -822,7 +864,7 @@
             const r = await esi(`/markets/${JITA_REGION}/orders/?order_type=sell&type_id=${d.typeId}`);
             book = r.data.filter((o) => o.location_id === JITA_STATION).sort((a, b) => a.price - b.price);
           } catch { book = []; }
-          const maxPrice = (net / (1 + minRoi) - fixedHaul) / (1 + collRate);
+          const maxPrice = (net / (1 + minRoi) - fixedHaul) / (1 + collRate) / cushion;
           let spent = 0;
           for (const o of book) {
             if (qty >= d.need || o.price > maxPrice) break;
@@ -839,7 +881,7 @@
         const cost = itemCost / qty;                               // average price paid per unit
         // Highest average unit price that still clears the minimum return.
         const feeMult = settings.buyHow === "order" ? 1 + bfJ : 1;
-        const maxAvg = (net / (1 + minRoi) - fixedHaul) / (feeMult + collRate);
+        const maxAvg = (net / (1 + minRoi) - fixedHaul) / (feeMult + collRate);   // the real break-even for your minimum
         const payMax = Math.min(cost * (1 + settings.dTol / 100), maxAvg);
         const unitSpend = cost + fixedHaul + collRate * cost;
         const profit = net - unitSpend;
@@ -872,6 +914,11 @@
         (restockFirst && !!a.sold !== !!b.sold ? (a.sold ? -1 : 1) : 0) ||
         (soldFirst && a.est !== b.est ? (a.est ? -1 : 1) : 0) ||
         (b.profit * b.qty - a.profit * a.qty));
+      // Items your buyback won't take (crystals by default): mark them, and optionally cap the total.
+      await groups(priced.map((p) => p.typeId));
+      const noBbList = String(settings.lBbExclude || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+      priced.forEach((p) => { const g = (groupName[groupOfType[p.typeId]] || "").toLowerCase(); p.noBb = noBbList.some((x) => g.includes(x)); });
+      let noBbLeft = settings.dNoBbCap > 0 ? settings.dNoBbCap : Infinity;
       let budgetLeft = budget > 0 ? budget : Infinity;
       let cargoLeft = settings.dCargo > 0 ? settings.dCargo : Infinity;
       const maxItems = freeSlots();
@@ -879,6 +926,7 @@
       for (const p of priced) {
         if (docResults.length >= maxItems) { skipped.slots++; continue; }
         let q = Math.min(p.qty, Math.floor(budgetLeft / p.unitSpend));
+        if (p.noBb) { const qb = Math.floor(noBbLeft / p.unitSpend); if (qb < q) { q = qb; if (q * p.profit < settings.dMinProfit) { skipped.noBb++; continue; } } }
         if (p.vol > 0) q = Math.min(q, Math.floor(cargoLeft / p.vol));
         if (q <= 0) { skipped.budget++; continue; }
         if (q * p.profit < settings.dMinProfit) { skipped.lowProfit++; continue; }
@@ -888,6 +936,7 @@
         p.totalProfit = q * p.profit;
         p.rank = docResults.length + 1;
         budgetLeft -= p.totalSpend;
+        if (p.noBb) noBbLeft -= p.totalSpend;
         cargoLeft -= p.totalM3;
         docResults.push(p);
       }
@@ -904,6 +953,8 @@
       if (slowCount) bits.push(`${slowCount} sell fewer than ${settings.dMinDaily} a day`);
       if (excludedCount) bits.push(`${excludedCount} are in categories you don't import (${settings.dExclude})`);
       if (skipped.spike) bits.push(`${skipped.spike} skipped because Jita is more than ${settings.dSpike}% above its 30-day average right now (${spikeNames.slice(0, 6).join(", ")}${spikeNames.length > 6 ? "…" : ""})`);
+      if (burstNames.length) bits.push(`${burstNames.length} planned on typical days instead of a few big ones (${burstNames.slice(0, 6).join(", ")}${burstNames.length > 6 ? "…" : ""})${skipped.burst ? `, ${skipped.burst} of them then had nothing to buy` : ""}`);
+      if (skipped.noBb) bits.push(`${skipped.noBb} cut by your ${isk(settings.dNoBbCap)} limit on items the buyback won't take`);
       if (skipped.thin) bits.push(`${skipped.thin} have no Jita 4-4 sell orders cheap enough to clear ${settings.dMinRoi}%`);
       if (skipped.lowProfit) bits.push(`${skipped.lowProfit} would make under ${isk(settings.dMinProfit)} in total`);
       if (skipped.slots) bits.push(`${skipped.slots} more were cut because you have ${maxItems} free order slots`);
@@ -913,7 +964,8 @@
       docSort = { key: "rank", dir: 1 };
       drawDocTable();
       status(budgetNote + restockNote + (docResults.length
-        ? `Buy list ready: ${docResults.length} items, ${isk(sum("totalSpend"))} to spend, about ${isk(sum("totalProfit"))} profit.`
+        ? `Buy list ready: ${docResults.length} items, ${isk(sum("totalSpend"))} to spend, about ${isk(sum("totalProfit"))} profit.` +
+          (docResults.some((r) => r.noBb) ? ` ${isk(docResults.filter((r) => r.noBb).reduce((a, r) => a + r.totalSpend, 0))} of it is in items the buyback won't take.` : "")
         : "No short items cleared your minimum return. Try a lower minimum or a higher sold-out markup."), "ok");
     } catch (e) {
       scanError(e);
@@ -1003,6 +1055,8 @@
         if (c.k === "name") {
           td.className = "name";
           td.textContent = r.name;
+          if (r.noBb) { const e = document.createElement("span"); e.className = "est"; e.style.color = "var(--warn, #e0a030)"; e.textContent = "NO BUYBACK"; e.title = "Your buyback won't take this. If it doesn't sell, you can't dump it at " + settings.lBbPct + "%."; td.appendChild(e); }
+          if (r.burst) { const e = document.createElement("span"); e.className = "est"; e.style.color = "var(--warn, #e0a030)"; e.textContent = "BURSTY"; e.title = `The tracker says ${intf(r.burst.planned)} a day, but a typical trading day in ${hub.region} is ${intf(r.burst.median)}. A few big days were inflating the average, so this plans on ${intf(r.burst.median)} a day.`; td.appendChild(e); }
           if (r.sold) { const e = document.createElement("span"); e.className = "est"; e.style.color = "var(--good)"; e.textContent = `SOLD ${intf(r.sold)}`; e.title = "Sold since your last haul"; td.appendChild(e); }
         } else if (c.k === "cls") {
           const s = document.createElement("span");
@@ -1055,7 +1109,7 @@
             }
           }
           if (c.k === "qty" && r.short) { td.title = `Short by ${intf(r.need)}, but only ${intf(r.qty)} are cheap enough in Jita (or your per-item cap stopped it).`; td.className = "warnc"; }
-          if (c.k === "demand") td.title = `7-day avg ${r.a7.toFixed(1)} / day · 30-day avg ${r.a30.toFixed(1)} / day`;
+          if (c.k === "demand") td.title = `7-day avg ${r.a7.toFixed(1)} / day · 30-day avg ${r.a30.toFixed(1)} / day` + (r.burst ? ` · planning on a typical day: ${intf(r.burst.median)}` : "") + (r.demand < settings.dSlowRate && settings.dSlowDays > 0 ? ` · slow seller: stocked for ${Math.min(settings.dDays, settings.dSlowDays)} days, not ${settings.dDays}` : "");
         }
         row.appendChild(td);
       });

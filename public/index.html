@@ -273,6 +273,13 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>…counting only listings within this % of the lowest price<input id="dStockBand" type="number" min="0" step="5"></label>
           <label>Leave out if others have this many sell orders up (0 = no limit)<input id="dMaxSellers" type="number" min="0" step="1"></label>
           <label>Minimum sales per day (0 = no limit)<input id="dMinDaily" type="number" min="0" step="0.5"></label>
+          <label>Plan on a typical day if usage is more than this × the median day (0 = off)<input id="dBurst" type="number" min="0" step="0.5"></label>
+          <label>Slow sellers: under this many a day…<input id="dSlowRate" type="number" min="0" step="0.5"></label>
+          <label>…only stock this many days (0 = same as everything)<input id="dSlowDays" type="number" min="0" step="1"></label>
+          <label>Keep the minimum return even at "Pay at most"
+            <select id="dCushion"><option value="on">Yes</option><option value="off">No</option></select>
+          </label>
+          <label>Max ISK in items the buyback won't take (0 = no limit)<input id="dNoBbCap" type="number" min="0" step="50000000"></label>
           <label>Minimum profit per item (total)<input id="dMinProfit" type="number" step="500000" min="0"></label>
           <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
           <label>Fill slots with
@@ -579,8 +586,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.20.2"></script>
-<script src="config.js?v=2.20.2"></script>
-<script src="app.js?v=2.20.2"></script>
+<script src="version.js?v=2.21.0"></script>
+<script src="config.js?v=2.21.0"></script>
+<script src="app.js?v=2.21.0"></script>
 </body>
 </html>

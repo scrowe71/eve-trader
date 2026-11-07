@@ -100,6 +100,13 @@ The Trade journal shows your trading wallet division's balance, plus your stock 
 
 Items in the categories or groups listed under **Don't import** are left out of the Doctrine list. The default is `Material, Asteroid, Planetary Commodities, Planetary Resources`, which covers minerals, moon materials such as hydrocarbons, ice products, fuel blocks, ore, ice and PI. A name matches an EVE category exactly, or any part of a group name.
 
+### Safety checks on the buy list
+
+- **Bursty demand.** Each item's planned usage is compared with a typical trading day (the median of the last 30 days that had sales) in the hub's region. If usage is more than 2× that, a few big days are inflating the average, so the list plans on the typical day and marks the item **BURSTY**.
+- **Slow sellers stock for less time.** Items selling under 5 a day are only stocked for 7 days instead of the full "Days to cover", so less ISK sits on the shelf.
+- **Margin cushion.** Every unit must still clear your minimum return if Multibuy comes in at the full allowance (Pay at most), not just at the expected price.
+- **No buyback.** Items in groups your buyback refuses (crystals by default) are marked **NO BUYBACK**, the status line shows how much ISK is in them, and you can cap that total.
+
 ### Jita spike check
 
 Before building the buy list, each item's Jita price is compared with its 30-day Jita average. Items more than the **spike limit** above it (default 15%) are left out by default, so you don't restock right after a price jump. You can switch it to **keep but flag**, which shows an orange +N% chip on the Jita cost.
