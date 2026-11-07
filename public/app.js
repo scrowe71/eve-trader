@@ -21,7 +21,7 @@
 
   const DEFAULTS = {
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
-    haulRate: 800, coll: 1, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
+    haulRate: 800, coll: 1, haulDisc: 0, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout",
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
@@ -55,6 +55,8 @@
   const salesTax = () => 0.075 * (1 - 0.11 * Math.min(5, Math.max(0, settings.acc)));
   const jitaBroker = () => Math.max(0.01, 0.03 - 0.003 * settings.br - 0.0003 * settings.jFac - 0.0002 * settings.jCorp);
   const hubBroker = () => settings.hubFee / 100;
+  const haulCost = (vol, cost) =>
+    (settings.haulRate * (vol || 0) + (settings.coll / 100) * cost) * (1 - Math.min(100, Math.max(0, settings.haulDisc || 0)) / 100);
   const lvl = (v) => Math.min(5, Math.max(0, Math.round(v || 0)));
   const orderSlots = () => 5 + 4 * lvl(settings.trade) + 8 * lvl(settings.retail) + 16 * lvl(settings.wholesale) + 32 * lvl(settings.tycoon);
   const freeSlots = () => Math.max(0, orderSlots() - Math.max(0, Math.round(settings.openOrders || 0)));
@@ -293,7 +295,7 @@
       cost = jSell;
     }
     if (cost < settings.minPrice) return null;
-    const haul = settings.haulRate * (vol || 0) + (settings.coll / 100) * cost;
+    const haul = haulCost(vol, cost);
     const sell = h.sellMin;
     const sellFees = (hubBroker() + salesTax()) * sell;
     const profit = sell - sellFees - cost - buyFee - haul;
@@ -509,7 +511,7 @@
         const hubSell = h && h.sellMin < Infinity ? h.sellMin : null;
         const sell = hubSell !== null ? hubSell : cost * settings.dMarkup / 100;
         const vol = volCache[d.typeId] || 0;
-        const haul = settings.haulRate * vol + (settings.coll / 100) * cost;
+        const haul = haulCost(vol, cost);
         const unitSpend = cost + buyFee + haul;
         const profit = sell * (1 - bfH - tax) - unitSpend;
         const roi = unitSpend > 0 ? profit / unitSpend : 0;
@@ -832,7 +834,7 @@
   }
   function feeLine() {
     $("feeLine").textContent =
-      `Sales tax ${(salesTax() * 100).toFixed(3)}% · Jita broker fee ${(jitaBroker() * 100).toFixed(2)}% · Hub broker fee ${settings.hubFee}%`;
+      `Sales tax ${(salesTax() * 100).toFixed(3)}% · Jita broker fee ${(jitaBroker() * 100).toFixed(2)}% · Hub broker fee ${settings.hubFee}%${settings.haulDisc ? ` · Hauling discount ${settings.haulDisc}%` : ""}`;
     $("slotLine").textContent = `${orderSlots()} order slots, ${freeSlots()} free. The Doctrine list picks at most ${freeSlots()} items.`;
   }
 

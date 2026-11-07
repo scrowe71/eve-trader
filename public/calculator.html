@@ -184,6 +184,7 @@ footer a { color: var(--accent); }
             <label>Rate (ISK per m³)<input id="hRate" type="number" step="50" min="0" value="800"></label>
             <label>Collateral fee %<input id="hColl" type="number" step="0.1" min="0" value="1"></label>
             <label>Flat fee per contract<input id="hFlat" type="number" step="100000" min="0" value="0"></label>
+            <label>Your discount %<input id="hDisc" type="number" step="1" min="0" max="100" value="0"></label>
           </div>
         </div>
 
@@ -316,7 +317,7 @@ footer a { color: var(--accent); }
 
     let haul = 0;
     if (mode === "import") {
-      haul = num("hRate") * vol * q + (num("hColl") / 100) * buyVal + num("hFlat");
+      haul = (num("hRate") * vol * q + (num("hColl") / 100) * buyVal + num("hFlat")) * (1 - clamp(num("hDisc"), 0, 100) / 100);
       rows.push(["Hauling (" + full(vol * q) + " m³)", -haul, "haul"]);
     }
 
@@ -424,7 +425,7 @@ footer a { color: var(--accent); }
     out.appendChild(note);
   }
 
-  const ids = ["acc","br","abr","buyType","buyFac","buyCorp","buyUp","sellType","sellFac","sellCorp","sellUp","sTrade","sRetail","sWhole","sTyc","capital","item","qty","vol","buyP","sellP","buyHow","bUpd","bStep","hRate","hColl","hFlat","sellHow","sUpd","rSide","rQty","rOld","rNew"];
+  const ids = ["acc","br","abr","buyType","buyFac","buyCorp","buyUp","sellType","sellFac","sellCorp","sellUp","sTrade","sRetail","sWhole","sTyc","capital","item","qty","vol","buyP","sellP","buyHow","bUpd","bStep","hRate","hColl","hFlat","hDisc","sellHow","sUpd","rSide","rQty","rOld","rNew"];
   function save() {
     try { const o = { mode }; ids.forEach(i => o[i] = $(i).value); localStorage.setItem("eveTradeCalc", JSON.stringify(o)); } catch (e) {}
   }
