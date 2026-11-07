@@ -298,9 +298,16 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <select id="jWhere"><option value="hub">At the hub only</option><option value="all">Everywhere</option></select>
           </label>
         </div>
+        <div class="row">
+          <label>Count trades from (blank = all history)<input id="jFrom" type="datetime-local"></label>
+          <button type="button" id="jFromNow">Start fresh from now</button>
+          <button type="button" id="jFromClear">Use all history</button>
+        </div>
+        <p class="hint">Set this to just before your first import purchase so older activity in the corp wallet (industry, other trades) isn't counted. It applies to buys, sales and fees.</p>
         <p class="hint">The corp wallet needs a character with the Accountant or Junior Accountant role. Division numbers follow the order in the in-game Corporation → Wallet window: 1 is Master Wallet, then 2 to 7. Everything in that division is counted as your trading.</p>
         <div class="row">
           <button type="button" class="primary" id="jRun" disabled>Load my trades</button>
+          <button type="button" id="jClear">Clear</button>
         </div>
       </section>
 

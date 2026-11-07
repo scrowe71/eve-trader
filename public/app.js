@@ -33,9 +33,9 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    jPeriod: 14, jWhere: "hub", jCorp: "on", jCorpDiv: 1, jCorpChar: "",
+    jPeriod: 14, jWhere: "hub", jCorp: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "",
   };
-  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorp", "jCorpChar"]);
+  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorp", "jCorpChar", "jFrom"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   let token = store.get("token", null);                 // the hub (primary) character
   const chars = store.get("chars", {});                 // every logged-in character, by id
@@ -933,7 +933,8 @@
     $("jRun").disabled = true;
     try {
       const period = Math.max(1, settings.jPeriod) * 86400000;
-      const since = Date.now() - period;
+      const from = settings.jFrom ? Date.parse(settings.jFrom) || 0 : 0;   // "Count trades from"
+      const since = Math.max(Date.now() - period, from);
       const txs = [], journal = [];
       const who = Object.values(chars).filter((c) => hasWallet(c) && c.include !== false);
       if (settings.jCorp === "on" && !settings.jCorpChar) throw new Error("Pick which character reads the corp wallet (it needs the Accountant or Junior Accountant role).");
@@ -968,6 +969,7 @@
       const byType = new Map();
       const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, soldQty: 0, revenue: 0, allSold: 0 }; byType.set(id, r); } return r; };
       for (const t of uniq) {
+        if (from && Date.parse(t.date) < from) continue;
         const r = get(t.type_id);
         if (t.is_buy) {
           if (onlyHub && t.location_id === hub.id) continue;   // buying at the hub isn't an import
@@ -995,7 +997,8 @@
         r.fees = r.revenue * (tax + bfH);
         r.profit = r.cogs !== null ? r.revenue - r.fees - r.cogs : null;
         r.roi = r.cogs ? r.profit / r.cogs : null;
-        r.perDay = r.soldQty / days;
+        const spanDays = Math.max(1, Math.min(days, (Date.now() - since) / 86400000));
+        r.perDay = r.soldQty / spanDays;
         const d = tracker.get(r.typeId);
         r.hubPerDay = d ? (d.a30 || d.a7) : null;
         r.left = Math.max(0, r.buyQty - r.allSold);
@@ -1044,6 +1047,23 @@
     } finally {
       renderChars();
     }
+  }
+
+  function clearJournal() {
+    jRows = [];
+    $("jTbody").innerHTML = "";
+    $("jResults").classList.add("hidden");
+    status("Journal cleared. Click \"Load my trades\" to read the wallets again.", "ok");
+  }
+
+  function setJournalFrom(value) {
+    settings.jFrom = value;
+    $("jFrom").value = value;
+    store.set("settings", settings);
+    clearJournal();
+    status(value
+      ? `The journal now counts only trades from ${new Date(value).toLocaleString()} onward.`
+      : "The journal now counts all wallet history again.", "ok");
   }
 
   const J_COLS = [
@@ -1272,6 +1292,14 @@
     $("tabJournal").addEventListener("click", () => setTab("journal"));
     $("jAdd").addEventListener("click", () => login("journal"));
     $("jRun").addEventListener("click", runJournal);
+    $("jClear").addEventListener("click", clearJournal);
+    $("jFromNow").addEventListener("click", () => {
+      const d = new Date();
+      d.setSeconds(0, 0);
+      const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      setJournalFrom(local);
+    });
+    $("jFromClear").addEventListener("click", () => setJournalFrom(""));
     $("tabScan").addEventListener("click", () => setTab("scan"));
     $("docFile").addEventListener("change", async (e) => {
       const f = e.target.files && e.target.files[0];
