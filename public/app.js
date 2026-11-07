@@ -958,11 +958,67 @@
     status("Delivery alerts turned off.", "ok");
   }
 
+  const STATUS_TEXT = {
+    outstanding: "Waiting for a hauler", in_progress: "Picked up (in transit)", finished: "Delivered",
+    failed: "Failed", rejected: "Rejected", deleted: "Deleted", cancelled: "Cancelled", expired: "Expired",
+  };
+  function placeLabel(id) {
+    if (!id) return "?";
+    if (id === JITA_STATION) return "Jita 4-4";
+    if (hub && id === hub.id) return hub.system || hub.name;
+    return "Location " + id;
+  }
+  function drawWatched(list, lastCheck) {
+    const box = $("aList");
+    box.innerHTML = "";
+    if (!lastCheck) return;
+    if (!list.length) {
+      box.innerHTML = '<p class="hint">No courier contracts found for this character or its corp right now. If you have one in transit, check you logged in with the character that issued it, or one in the same corp with "Character + corp" selected.</p>';
+      return;
+    }
+    const t = document.createElement("table");
+    t.innerHTML = "<thead><tr><th class='name'>Route</th><th>Status</th><th>Volume</th><th>Collateral</th><th>Reward</th><th>Issued</th><th>Contract</th></tr></thead>";
+    const tb = document.createElement("tbody");
+    list.forEach((c) => {
+      const tr = document.createElement("tr");
+      const cells = [
+        c.start_location_id ? `${placeLabel(c.start_location_id)} → ${placeLabel(c.end_location_id)}` : "(details after the next check)",
+        STATUS_TEXT[c.status] || c.status,
+        c.volume ? intf(c.volume) + " m³" : "–",
+        c.collateral ? isk(c.collateral) : "–",
+        c.reward ? isk(c.reward) : "–",
+        c.date_issued ? new Date(c.date_issued).toLocaleString() : "–",
+        String(c.contract_id),
+      ];
+      cells.forEach((v, i) => {
+        const td = document.createElement("td");
+        if (i === 0) td.className = "name";
+        if (i === 1) {
+          const sp = document.createElement("span");
+          sp.className = "chip " + (c.status === "finished" ? "good" : c.status === "in_progress" || c.status === "outstanding" ? "warn" : "bad");
+          sp.textContent = v;
+          td.appendChild(sp);
+        } else td.textContent = v;
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap watched";
+    wrap.appendChild(t);
+    const cap = document.createElement("p");
+    cap.className = "hint";
+    cap.textContent = `Courier contracts the worker is watching (${list.length}). You'll get a Discord message when any of these changes status.`;
+    box.append(cap, wrap);
+  }
+
   async function renderAlerts() {
     const a = store.get("alerts", null);
     $("aWebhook").value = store.get("aWebhook", "");
     $("aOff").classList.toggle("hidden", !a);
     $("aOn").textContent = a ? "Turn on again / change" : "Turn on alerts";
+    $("aList").innerHTML = "";
     if (!a) { $("aState").textContent = "Alerts are off."; return; }
     $("aState").textContent = `Alerts are on for ${a.name}. Checking status…`;
     try {
@@ -977,6 +1033,7 @@
           ? (j.lastArchive ? ` Cloud history: wallets last copied ${new Date(j.lastArchive).toLocaleString()} (${(j.sources || []).join(", ") || "none yet"}).` : " Cloud history: first wallet copy happens on the next check.") +
             (j.archiveError ? ` Cloud problem: ${j.archiveError}` : "")
           : " Cloud history isn't set up yet (see README).");
+      drawWatched(j.contracts || [], j.lastCheck);
     } catch (e) {
       $("aState").textContent = `Alerts were turned on for ${a.name}, but I couldn't check their status (${e.message}).`;
     }
@@ -1639,6 +1696,7 @@
     $("jClear").addEventListener("click", clearJournal);
     $("aOn").addEventListener("click", () => alertsOn().catch((e) => status(e.message, "err")));
     $("aOff").addEventListener("click", alertsOff);
+    $("aRefresh").addEventListener("click", renderAlerts);
     $("jFromNow").addEventListener("click", () => {
       const d = new Date();
       d.setSeconds(0, 0);

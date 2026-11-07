@@ -37,7 +37,19 @@ export async function onRequest({ request, env }) {
   if (request.method === "GET") {
     const w = await load(env, url.searchParams.get("char"), url.searchParams.get("key"));
     if (!w) return json({ on: false });
-    return json({ on: true, name: w.name, corp: w.corp, lastCheck: w.lastCheck || null, lastError: w.lastError || null,
+    // Contracts the worker is watching, with details from the cloud database when available.
+    const seen = w.seen || {};
+    let contracts = Object.entries(seen).map(([id, status]) => ({ contract_id: Number(id), status }));
+    if (env.DB && contracts.length) {
+      try {
+        const ids = contracts.map((c) => c.contract_id);
+        const rows = (await env.DB.prepare(`SELECT * FROM hauls WHERE contract_id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all()).results;
+        const byId = new Map(rows.map((r) => [r.contract_id, r]));
+        contracts = contracts.map((c) => Object.assign({}, byId.get(c.contract_id) || {}, c));
+      } catch {}
+    }
+    contracts.sort((a, b) => String(b.date_issued || "").localeCompare(String(a.date_issued || "")));
+    return json({ on: true, contracts, name: w.name, corp: w.corp, lastCheck: w.lastCheck || null, lastError: w.lastError || null,
       tracking: Object.keys(w.seen || {}).length, lastArchive: w.lastArchive || null, archiveError: w.archiveError || null,
       sources: w.sources || [], cloud: !!env.DB });
   }

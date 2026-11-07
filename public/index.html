@@ -95,6 +95,8 @@ td.pay { color: var(--accent); font-weight: 500; }
 #sResults th, #sResults td { padding: 6px 5px; }
 #sResults th.name, #sResults td.name { text-align: left; white-space: normal; min-width: 140px; max-width: 230px; font-family: var(--body); }
 #sResults td.note { max-width: 320px; color: var(--muted); font-size: 12px; }
+.watched table { font-size: 12.5px; }
+.watched td.name, .watched th.name { text-align: left; font-family: var(--body); }
 ul.tight { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 #jResults th, #jResults td { padding: 6px 5px; }
 #jResults th.name, #jResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 260px; font-family: var(--body); }
@@ -355,6 +357,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <button type="button" id="aOff" class="hidden">Turn off</button>
           </div>
           <p class="hint" id="aState">Alerts are off.</p>
+          <div id="aList"></div>
+          <div class="row"><button type="button" id="aRefresh">Refresh status</button></div>
         </div>
         <div class="row">
           <button type="button" class="primary" id="jRun" disabled>Load my trades</button>
