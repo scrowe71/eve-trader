@@ -50,10 +50,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", iBuyHow: "instant", iExpress: "share", iUpdates: 1, iHaul: "on", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dExcludeName", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dExcludeName", "iBuyHow", "iExpress", "iHaul", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -399,7 +399,10 @@
     };
   }
 
+  // CCP refreshes structure markets every 5 minutes, so a download younger than that is reused.
+  let aggCache = null;
   async function loadHubAgg() {
+    if (aggCache && aggCache.hubId === hub.id && Date.now() - aggCache.at < 5 * 60000) return aggCache.agg;
     status("Downloading hub orders…", "busy");
     const orders = await hubOrders(hub.id);
     const agg = new Map();
@@ -410,6 +413,7 @@
       else { a.sellQty += o.volume_remain; a.sellOrders++; a.sellIds.push(o.order_id); a.sells.push([o.price, o.volume_remain]); if (o.price < a.sellMin) a.sellMin = o.price; }
     }
     agg.orderCount = orders.length;
+    aggCache = { hubId: hub.id, at: Date.now(), agg };
     return agg;
   }
 
@@ -1175,7 +1179,11 @@
   }
 
   function setTab(which) {
-    if (!["doc", "scan", "journal", "sell", "orders", "liq", "rep"].includes(which)) which = "doc";
+    if (!["doc", "scan", "item", "journal", "sell", "orders", "liq", "rep"].includes(which)) which = "doc";
+    const it = which === "item";
+    $("tabItem").setAttribute("aria-pressed", String(it));
+    $("iPanel").classList.toggle("hidden", !it);
+    $("iResults").classList.toggle("hidden", !it || !iShown);
     const doc = which === "doc", scanT = which === "scan", jr = which === "journal", sl = which === "sell";
     $("tabDoc").setAttribute("aria-pressed", String(doc));
     $("tabScan").setAttribute("aria-pressed", String(scanT));
@@ -1383,6 +1391,166 @@
       drawWatched(j.contracts || [], j.lastCheck);
     } catch (e) {
       $("aState").textContent = `Alerts were turned on for ${a.name}, but I couldn't check their status (${e.message}).`;
+    }
+  }
+
+  // ---------- single item check ----------
+  let iShown = false;
+  function fillItemNames() {
+    const dl = $("iNames");
+    if (dl.childElementCount) return;
+    const frag = document.createDocumentFragment();
+    [...new Set(Object.values(nameCache))].sort().forEach((n) => { const o = document.createElement("option"); o.value = n; frag.appendChild(o); });
+    dl.appendChild(frag);
+  }
+  async function bookFor(regionId, typeId) {
+    let all = [], page = 1, pages = 1;
+    do {
+      const r = await esi(`/markets/${regionId}/orders/?order_type=all&type_id=${typeId}&page=${page}`);
+      all = all.concat(r.data); pages = r.pages || 1; page++;
+    } while (page <= pages && page <= 10);
+    return all;
+  }
+  async function history30(regionId, typeId) {
+    try {
+      const h = (await esi(`/markets/${regionId}/history/?type_id=${typeId}`)).data;
+      const cut = Date.now() - 30 * 86400000;
+      const rec = h.filter((x) => Date.parse(x.date) >= cut);
+      const vol = rec.reduce((a, x) => a + x.volume, 0);
+      return { perDay: vol / 30, avg: vol ? rec.reduce((a, x) => a + x.average * x.volume, 0) / vol : 0, days: rec.filter((x) => x.volume > 0).length };
+    } catch { return { perDay: 0, avg: 0, days: 0 }; }
+  }
+  async function runItem() {
+    const name = $("iName").value.trim();
+    if (!name) { status("Type an item name.", "err"); return; }
+    if (!hub) { status("Pick your hub first.", "err"); return; }
+    store.set("iName", name);
+    const qty = Math.max(1, Math.round(parseFloat($("iQty").value) || 1));
+    $("iRun").disabled = true;
+    try {
+      status(`Looking up ${name}…`, "busy");
+      const ids = (await esi("/universe/ids/", { method: "POST", body: [name] })).data;
+      const t = ids && ids.inventory_types && ids.inventory_types[0];
+      if (!t) { status(`No item called "${name}". Use the exact in-game name (the list suggests names you've seen).`, "err"); return; }
+      const typeId = t.id; nameCache[typeId] = t.name;
+      status(`Pulling Jita and ${hub.system || hub.name} markets for ${t.name}…`, "busy");
+      const [jBook, jHist, hHist, agg] = await Promise.all([
+        bookFor(JITA_REGION, typeId), history30(JITA_REGION, typeId), history30(hub.regionId, typeId), loadHubAgg(), volumes([typeId]), groups([typeId]),
+      ]);
+      const vol = volCache[typeId] || 0;
+      const jSells = jBook.filter((o) => !o.is_buy_order && o.location_id === JITA_STATION).sort((a, b) => a.price - b.price);
+      const jBuys = jBook.filter((o) => o.is_buy_order && o.location_id === JITA_STATION).sort((a, b) => b.price - a.price);
+      const h = agg.get(typeId);
+      const hubSells = h ? h.sells.slice().sort((a, b) => a[0] - b[0]) : [];
+      const hubLow = hubSells.length ? hubSells[0][0] : null;
+
+      // Jita cost for the quantity.
+      const byOrder = settings.iBuyHow === "order";
+      let jCost, jNote, got = qty;
+      if (byOrder) {
+        if (!jBuys.length && !jSells.length) { status("Nobody is trading this in Jita 4-4.", "err"); return; }
+        const top = jBuys.length ? jBuys[0].price : jSells[0].price * 0.9;
+        jCost = top + tick(top);
+        jNote = `Buy order one tick over the top bid (${isk(top)}).`;
+      } else {
+        if (!jSells.length) { status("No sell orders for this in Jita 4-4. Try buying by buy order.", "err"); return; }
+        let left = qty, spent = 0, worst = 0;
+        for (const o of jSells) { const take = Math.min(left, o.volume_remain); spent += take * o.price; left -= take; worst = o.price; if (!left) break; }
+        got = qty - left;
+        jCost = spent / got;
+        jNote = got < qty ? `Only ${intf(got)} for sale in Jita 4-4; figures are for those.` : got > 1 ? `Average over the orders you'd buy (cheapest ${isk(jSells[0].price)}, most expensive ${isk(worst)}).` : "";
+      }
+      const units = got;
+
+      // Hub sell price.
+      const typed = parseFloat($("iSell").value);
+      let sell, sellNote;
+      if (typed > 0) { sell = typed; sellNote = "Your price."; }
+      else if (hubLow) { sell = floorTick(hubLow - tick(hubLow) * 0.5); sellNote = `One tick under the lowest hub listing (${isk(hubLow)}).`; }
+      else if (hHist.avg) { sell = hHist.avg; sellNote = `Nobody is selling at the hub: the 30-day ${hub.region} average.`; }
+      else { sell = jCost * settings.dMarkup / 100; sellNote = `Nobody is selling at the hub and no recent sales: your ${settings.dMarkup}% markup on Jita.`; }
+
+      // Costs per unit.
+      const k = 1 - Math.min(100, Math.max(0, settings.haulDisc || 0)) / 100;
+      const haulOn = settings.iHaul !== "off";
+      const rr = 1 - (0.5 + 0.06 * Math.min(5, Math.max(0, settings.abr)));
+      const m3 = vol * units;
+      const express = !haulOn || settings.iExpress === "none" ? 0
+        : settings.iExpress === "full" ? (settings.haulExpress || 0)
+        : (settings.haulExpress || 0) * Math.min(1, m3 / JF_CARGO);
+      const lines = [
+        ["Jita price", jCost, jNote],
+        ["Jita broker fee (buy order)", byOrder ? jitaBroker() * jCost : 0, byOrder ? `${(jitaBroker() * 100).toFixed(2)}% of the order` : null],
+        ["Hauling", haulOn ? k * settings.haulRate * vol : 0, haulOn ? `${intf(vol)} m³ × ${intf(settings.haulRate)} ISK/m³${k < 1 ? `, less your ${settings.haulDisc}% discount` : ""}` : null],
+        ["Collateral", haulOn ? k * settings.coll / 100 * jCost : 0, haulOn ? `${settings.coll}% of the Jita price` : null],
+        ["Express", express / units, express ? (settings.iExpress === "full" ? "Whole express fee on this item" : `${(Math.min(1, m3 / JF_CARGO) * 100).toFixed(1)}% of a full JF load`) : null],
+        ["Hub listing fee", hubBroker() * sell, `${settings.hubFee}% of the sell price`],
+        ["Sales tax", salesTax() * sell, `${(salesTax() * 100).toFixed(2)}% (Accounting ${settings.acc})`],
+        ["Price updates", (settings.iUpdates || 0) * rr * hubBroker() * sell, settings.iUpdates ? `${settings.iUpdates} × ${(rr * hubBroker() * 100).toFixed(3)}% (Adv. Broker Relations ${settings.abr})` : null],
+      ];
+      const buySide = lines.slice(0, 5).reduce((a, l) => a + l[1], 0);
+      const sellPct = hubBroker() + salesTax() + (settings.iUpdates || 0) * rr * hubBroker();
+      const profit = sell * (1 - sellPct) - buySide;
+      const roi = buySide > 0 ? profit / buySide : 0;
+      const minRoi = settings.dMinRoi / 100;
+      const breakEven = buySide / (1 - sellPct);
+      const forMin = buySide * (1 + minRoi) / (1 - sellPct);
+      // Highest Jita price that still clears the minimum return at this sell price.
+      const perJ = 1 + (byOrder ? jitaBroker() : 0) + (haulOn ? k * settings.coll / 100 : 0);
+      const fixed = (haulOn ? k * settings.haulRate * vol : 0) + express / units;
+      const payMax = (sell * (1 - sellPct) / (1 + minRoi) - fixed) / perJ;
+
+      // Draw.
+      $("iTitle").textContent = `${t.name}${units > 1 ? ` × ${intf(units)}` : ""}`;
+      $("iMeta").textContent = `${intf(vol)} m³ each (packaged)${units > 1 ? `, ${intf(m3)} m³ total` : ""}. Sell price: ${sellNote}`;
+      $("iProfit").textContent = isk(profit * units);
+      $("iProfit").className = "v " + (profit >= 0 ? "pos" : "neg");
+      $("iProfitEach").textContent = units > 1 ? `${isk(profit)} each` : "";
+      $("iRoi").textContent = pct(roi);
+      $("iRoi").className = "v " + (roi >= minRoi ? "pos" : roi >= 0 ? "warnc" : "neg");
+      $("iRoiNote").textContent = roi >= minRoi ? `Clears your ${settings.dMinRoi}% minimum` : `Under your ${settings.dMinRoi}% minimum`;
+      $("iBreak").textContent = isk(breakEven);
+      $("iMinNote").textContent = `${isk(forMin)} for ${settings.dMinRoi}% return`;
+      $("iPayMax").textContent = payMax > 0 ? isk(payMax) : "–";
+      $("iPayNote").textContent = payMax > 0 ? `each, for ${settings.dMinRoi}% at ${isk(sell)}` : `Can't make ${settings.dMinRoi}% at ${isk(sell)}`;
+
+      const hubPerDay = hHist.perDay;
+      const listed = h ? h.sellQty : 0;
+      const ahead = hubSells.filter(([p]) => p < sell).reduce((a, [, q]) => a + q, 0);
+      const rows = [
+        ["Lowest sell", isk(jSells[0] ? jSells[0].price : NaN), hubLow ? isk(hubLow) : "Sold out"],
+        ["Highest buy", isk(jBuys[0] ? jBuys[0].price : NaN), h && h.buyMax ? isk(h.buyMax) : "–"],
+        ["Units for sale", intf(jSells.reduce((a, o) => a + o.volume_remain, 0)), intf(listed)],
+        ["Sell orders", intf(jSells.length), intf(h ? h.sellOrders : 0)],
+        ["30-day average price", isk(jHist.avg), isk(hHist.avg)],
+        ["Sold per day (30-day, region)", jHist.perDay.toFixed(1), hubPerDay.toFixed(1)],
+        ["Days of stock listed", "", hubPerDay > 0 ? (listed / hubPerDay).toFixed(1) : listed ? "∞" : "0"],
+        ["Days to sell yours (at your price)", "", hubPerDay > 0 ? ((ahead + units) / hubPerDay).toFixed(1) : "?"],
+      ];
+      $("iHubHead").textContent = hub.system || hub.name;
+      const mk = (cells, cls) => { const tr = document.createElement("tr"); cells.forEach((c, i) => { const td = document.createElement("td"); td.textContent = c; if (i === 0) td.className = "name"; tr.appendChild(td); }); if (cls) tr.className = cls; return tr; };
+      const mb = $("iMarket"); mb.innerHTML = ""; rows.forEach((r) => mb.appendChild(mk(r)));
+      const cb = $("iCosts"); cb.innerHTML = "";
+      lines.forEach(([label, per, note]) => { if (!per && !note) return; const tr = mk([label, isk(per), isk(per * units)]); if (note) tr.firstChild.title = note; cb.appendChild(tr); });
+      const tot = buySide + sellPct * sell;
+      cb.appendChild(mk(["All costs", isk(tot), isk(tot * units)])).style.fontWeight = "600";
+      cb.appendChild(mk(["Hub sale", isk(sell), isk(sell * units)]));
+      const pr = mk(["Profit", isk(profit), isk(profit * units)]); pr.style.fontWeight = "600"; pr.className = profit >= 0 ? "pos" : "neg"; cb.appendChild(pr);
+
+      const notes = [];
+      if (hubPerDay > 0 && hubPerDay < settings.dMinDaily) notes.push(`Slow seller: about ${hubPerDay.toFixed(1)} a day in ${hub.region}.`);
+      if (h && h.sellOrders >= settings.dMaxSellers && settings.dMaxSellers > 0) notes.push(`${h.sellOrders} sell orders already up at the hub.`);
+      if (jHist.avg && jCost > jHist.avg * (1 + settings.dSpike / 100)) notes.push(`Jita is ${((jCost / jHist.avg - 1) * 100).toFixed(0)}% above its 30-day average right now.`);
+      if (inGroups(typeId, settings.lBbExclude)) notes.push("Your buyback won't take this.");
+      notes.push("Hover a cost for how it's worked out. Hub figures are from the hub's region history, which can include other Fountain markets.");
+      $("iNotes").textContent = notes.join(" ");
+      iShown = true;
+      $("iResults").classList.remove("hidden");
+      status(`${t.name}: ${isk(profit * units)} profit, ${pct(roi)} return.`, "ok");
+    } catch (e) {
+      scanError(e);
+    } finally {
+      $("iRun").disabled = false;
     }
   }
 
@@ -2797,6 +2965,10 @@
     $("syncBtn").addEventListener("click", () => syncFromGame(false).then((ok) => ok && status("Skills and open orders updated from the game.", "ok")));
     $("tabLiq").addEventListener("click", () => setTab("liq"));
     $("tabRep").addEventListener("click", () => setTab("rep"));
+    $("tabItem").addEventListener("click", () => { setTab("item"); fillItemNames(); });
+    $("iRun").addEventListener("click", runItem);
+    $("iName").addEventListener("keydown", (e) => { if (e.key === "Enter") runItem(); });
+    $("iName").value = store.get("iName", "");
     $("rRun").addEventListener("click", runReport);
     $("rPreset").addEventListener("change", syncReportInputs);
     syncReportInputs();

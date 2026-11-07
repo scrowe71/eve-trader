@@ -227,6 +227,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
       <div class="seg" role="group" aria-label="What to look at">
         <button type="button" id="tabDoc" aria-pressed="true">Doctrine list</button>
         <button type="button" id="tabScan" aria-pressed="false">Hub scan</button>
+        <button type="button" id="tabItem" aria-pressed="false">Item check</button>
         <button type="button" id="tabSell" aria-pressed="false">Sell prices</button>
         <button type="button" id="tabOrders" aria-pressed="false">Order check</button>
         <button type="button" id="tabLiq" aria-pressed="false">Liquidate</button>
@@ -354,6 +355,50 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <tbody id="sTbody"></tbody>
           </table>
         </div>
+      </section>
+
+      <section class="panel hidden" id="iPanel" aria-labelledby="hI">
+        <h2 id="hI">Item check: Jita → hub</h2>
+        <p class="hint">One item, every cost: Jita price for the quantity you want (walking the real orders), hauling, collateral, express, listing fee, sales tax and price updates.</p>
+        <div class="fields four">
+          <label class="full" style="grid-column:1/span 2">Item name (exact, as in game)<input id="iName" type="text" list="iNames" autocomplete="off" placeholder="Guardian"></label>
+          <datalist id="iNames"></datalist>
+          <label>Quantity<input id="iQty" type="number" min="1" step="1" value="1"></label>
+          <label>Sell price at the hub (blank = undercut the lowest)<input id="iSell" type="number" min="0" step="any" placeholder="auto"></label>
+          <label>Buy in Jita by
+            <select id="iBuyHow"><option value="instant">Buying now (sell orders)</option><option value="order">Buy order (top bid)</option></select>
+          </label>
+          <label>Express fee
+            <select id="iExpress"><option value="share">This item's share of a full JF load (by m³)</option><option value="full">The whole fee on this item</option><option value="none">Not included</option></select>
+          </label>
+          <label>Price updates you expect before it sells<input id="iUpdates" type="number" min="0" step="1"></label>
+          <label>Include hauling + collateral
+            <select id="iHaul"><option value="on">Yes</option><option value="off">No (carrying it myself)</option></select>
+          </label>
+        </div>
+        <div class="row"><button type="button" class="primary" id="iRun">Check item</button></div>
+      </section>
+
+      <section class="panel hidden" id="iResults" aria-labelledby="hIRes">
+        <h2 id="hIRes"><span id="iTitle">Item</span></h2>
+        <p class="hint" id="iMeta"></p>
+        <div class="summary">
+          <div class="tile"><span class="k">Profit</span><span class="v" id="iProfit">–</span><span class="k" id="iProfitEach"></span></div>
+          <div class="tile"><span class="k">Return</span><span class="v" id="iRoi">–</span><span class="k" id="iRoiNote"></span></div>
+          <div class="tile"><span class="k">Break-even hub price</span><span class="v" id="iBreak">–</span><span class="k" id="iMinNote"></span></div>
+          <div class="tile"><span class="k">Pay at most in Jita</span><span class="v" id="iPayMax">–</span><span class="k" id="iPayNote"></span></div>
+        </div>
+        <div class="fields" style="grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+          <div class="tablewrap"><table>
+            <thead><tr><th class="name">Market</th><th>Jita</th><th id="iHubHead">Hub</th></tr></thead>
+            <tbody id="iMarket"></tbody>
+          </table></div>
+          <div class="tablewrap"><table>
+            <thead><tr><th class="name">Cost / fee</th><th>Per unit</th><th>Total</th></tr></thead>
+            <tbody id="iCosts"></tbody>
+          </table></div>
+        </div>
+        <p class="hint" id="iNotes"></p>
       </section>
 
       <section class="panel hidden" id="rPanel" aria-labelledby="hR">
@@ -587,8 +632,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.22.1"></script>
-<script src="config.js?v=2.22.1"></script>
-<script src="app.js?v=2.22.1"></script>
+<script src="version.js?v=2.23.0"></script>
+<script src="config.js?v=2.23.0"></script>
+<script src="app.js?v=2.23.0"></script>
 </body>
 </html>
