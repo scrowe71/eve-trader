@@ -361,7 +361,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <h2 id="hI">Item check: Jita → hub</h2>
         <p class="hint">One item, every cost: Jita price for the quantity you want (walking the real orders), hauling, collateral, express, listing fee, sales tax and price updates.</p>
         <div class="fields four">
-          <label class="full" style="grid-column:1/span 2">Item name (exact, as in game)<input id="iName" type="text" list="iNames" autocomplete="off" placeholder="Guardian"></label>
+          <label class="full" style="grid-column:1/span 2">Item name (exact, as in game)<input id="iName" type="text" list="iNames" autocomplete="off" placeholder="Guardian"><span class="k" id="iHint" style="font-size:12px;color:var(--muted)"></span></label>
           <datalist id="iNames"></datalist>
           <label>Quantity<input id="iQty" type="number" min="1" step="1" value="1"></label>
           <label>Sell price at the hub (blank = undercut the lowest)<input id="iSell" type="number" min="0" step="any" placeholder="auto"></label>
@@ -632,8 +632,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.23.0"></script>
-<script src="config.js?v=2.23.0"></script>
-<script src="app.js?v=2.23.0"></script>
+<script src="version.js?v=2.23.1"></script>
+<script src="config.js?v=2.23.1"></script>
+<script src="app.js?v=2.23.1"></script>
 </body>
 </html>

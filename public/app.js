@@ -1396,13 +1396,49 @@
 
   // ---------- single item check ----------
   let iShown = false;
-  function fillItemNames() {
+  // Every item that trades in Jita (The Forge), id + name, refreshed weekly. ~30 requests the first time.
+  let typeIndex = null, typeIndexLoading = null;
+  function loadTypeIndex() {
+    if (typeIndex) return Promise.resolve(typeIndex);
+    const saved = store.get("typeIndex", null);
+    if (saved && saved.list && Date.now() - saved.at < 7 * 86400000) { typeIndex = saved.list; return Promise.resolve(typeIndex); }
+    if (typeIndexLoading) return typeIndexLoading;
+    typeIndexLoading = (async () => {
+      $("iHint").textContent = "Loading the list of item names (first time only)…";
+      const first = await esi(`/markets/${JITA_REGION}/types/?page=1`);
+      let ids = first.data;
+      const rest = await pool(Array.from({ length: Math.max(0, (first.pages || 1) - 1) }, (_, i) => i + 2), 6,
+        async (p) => (await esi(`/markets/${JITA_REGION}/types/?page=${p}`)).data);
+      rest.forEach((d) => { ids = ids.concat(d); });
+      const list = [];
+      await pool(chunk([...new Set(ids)], 1000), 4, async (c) => {
+        try { (await esi("/universe/names/", { method: "POST", body: c })).data.forEach((n) => list.push([n.id, n.name])); } catch {}
+      });
+      list.sort((a, b) => a[1].localeCompare(b[1]));
+      typeIndex = list;
+      try { store.set("typeIndex", { at: Date.now(), list }); } catch {}
+      $("iHint").textContent = `${intf(list.length)} items. Type part of a name.`;
+      return list;
+    })().catch((e) => { typeIndexLoading = null; $("iHint").textContent = "Couldn't load item names (" + e.message + "). Exact names still work."; return []; });
+    return typeIndexLoading;
+  }
+  // Suggestions as you type: names starting with what you typed first, then names containing it.
+  function suggestItems() {
+    const q = $("iName").value.trim().toLowerCase();
     const dl = $("iNames");
-    if (dl.childElementCount) return;
+    dl.innerHTML = "";
+    if (!typeIndex || q.length < 2) return;
+    const starts = [], has = [];
+    for (const [, n] of typeIndex) {
+      const l = n.toLowerCase();
+      if (l.startsWith(q)) starts.push(n); else if (l.includes(q)) has.push(n);
+      if (starts.length >= 25) break;
+    }
     const frag = document.createDocumentFragment();
-    [...new Set(Object.values(nameCache))].sort().forEach((n) => { const o = document.createElement("option"); o.value = n; frag.appendChild(o); });
+    starts.concat(has).slice(0, 25).forEach((n) => { const o = document.createElement("option"); o.value = n; frag.appendChild(o); });
     dl.appendChild(frag);
   }
+  function fillItemNames() { loadTypeIndex().then(() => { if (typeIndex && typeIndex.length) $("iHint").textContent = `${intf(typeIndex.length)} items. Type part of a name.`; suggestItems(); }); }
   async function bookFor(regionId, typeId) {
     let all = [], page = 1, pages = 1;
     do {
@@ -1429,9 +1465,19 @@
     $("iRun").disabled = true;
     try {
       status(`Looking up ${name}…`, "busy");
-      const ids = (await esi("/universe/ids/", { method: "POST", body: [name] })).data;
-      const t = ids && ids.inventory_types && ids.inventory_types[0];
-      if (!t) { status(`No item called "${name}". Use the exact in-game name (the list suggests names you've seen).`, "err"); return; }
+      let t = null;
+      const low = name.toLowerCase();
+      const hit = (typeIndex || []).find(([, n]) => n.toLowerCase() === low);
+      if (hit) t = { id: hit[0], name: hit[1] };
+      else {
+        const ids = (await esi("/universe/ids/", { method: "POST", body: [name] })).data;
+        t = ids && ids.inventory_types && ids.inventory_types[0];
+      }
+      if (!t) {
+        const near = (typeIndex || []).filter(([, n]) => n.toLowerCase().includes(low)).slice(0, 5).map(([, n]) => n);
+        status(`No item called "${name}".` + (near.length ? ` Did you mean: ${near.join(", ")}?` : " Pick a name from the suggestions."), "err");
+        return;
+      }
       const typeId = t.id; nameCache[typeId] = t.name;
       status(`Pulling Jita and ${hub.system || hub.name} markets for ${t.name}…`, "busy");
       const [jBook, jHist, hHist, agg] = await Promise.all([
@@ -2968,6 +3014,7 @@
     $("tabItem").addEventListener("click", () => { setTab("item"); fillItemNames(); });
     $("iRun").addEventListener("click", runItem);
     $("iName").addEventListener("keydown", (e) => { if (e.key === "Enter") runItem(); });
+    $("iName").addEventListener("input", suggestItems);
     $("iName").value = store.get("iName", "");
     $("rRun").addEventListener("click", runReport);
     $("rPreset").addEventListener("change", syncReportInputs);
