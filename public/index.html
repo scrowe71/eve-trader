@@ -432,6 +432,9 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <div class="fields">
           <label>Leave it if the cheaper units ahead of you would sell within (days)<input id="oAheadDays" type="number" min="0" step="0.5"></label>
           <label>Ignore undercuts smaller than (%)<input id="oMinGap" type="number" min="0" step="0.5"></label>
+          <label class="full">Discord undercut alert (every 30 min, only orders worth the fee)
+            <select id="oAlert"><option value="on">On</option><option value="off">Off</option></select>
+          </label>
         </div>
         <div class="row"><button type="button" class="primary" id="oRun">Check my orders</button></div>
       </section>
@@ -571,8 +574,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.15.2"></script>
-<script src="config.js?v=2.15.2"></script>
-<script src="app.js?v=2.15.2"></script>
+<script src="version.js?v=2.16.0"></script>
+<script src="config.js?v=2.16.0"></script>
+<script src="app.js?v=2.16.0"></script>
 </body>
 </html>

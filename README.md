@@ -214,6 +214,10 @@ Every day at 8:00 AM Eastern, the watcher posts a summary to the alerts channel:
 
 It uses the settings, hub and tracker you saved on the site, plus the cloud history. The alert login asks for market access (`esi-markets.structure_markets.v1`, `esi-markets.read_corporation_orders.v1`, `esi-markets.read_character_orders.v1`), so **turn alerts on again once** after updating. To get a summary right away, open `https://eve-trader-watcher.<subdomain>.workers.dev/?summary=1`.
 
+## Undercut alert (Discord)
+
+About every 30 minutes the watcher runs the Order check rules on your hub sell orders. It posts to Discord only when an order **newly** becomes worth updating, with the new price and the fee. It doesn't ping again for the same order until the situation changes, such as a new lowest price, or the order stops being worth updating and later becomes worth it again. Small undercuts that the Order check says to leave alone never trigger it. Turn it off on the Order check tab (**Discord undercut alert**).
+
 ## Cloud history (Cloudflare D1)
 
 CCP only keeps about 30 days of wallet journal. The watcher Worker copies your wallets into a D1 database **every hour**: the character, plus the corp division set on the Trade journal tab. It also stores every courier contract with what it actually cost. The Trade journal and Sell prices tabs read this history together with the live wallet, so nothing from your trading is lost.

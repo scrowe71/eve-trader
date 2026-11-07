@@ -3,7 +3,9 @@
 // it reads courier contracts and posts to Discord when one is picked up, delivered or fails.
 
 import { refreshToken, tokenInfo, esiGet, discord, placeName } from "../shared/eve.js";
-import { postSummary } from "./summary.js";
+import { postSummary, undercutCheck } from "./summary.js";
+
+const UNDERCUT_EVERY_MS = 29 * 60 * 1000;   // undercut check about every 30 minutes
 
 const SUMMARY_CRON = "0 13 * * *";   // 8:00 AM Eastern (EST) every day
 
@@ -158,6 +160,10 @@ async function checkOne(env, key) {
     }
     try { await saveHauls(env, w, couriers); } catch (e) { w.archiveError = "Saving hauls: " + e.message; }
     try { await archiveWallets(env, w, access, info, corpId); } catch (e) { w.archiveError = "Wallet copy: " + e.message; }
+    if (!w.lastUndercut || Date.now() - Date.parse(w.lastUndercut) >= UNDERCUT_EVERY_MS) {
+      try { await undercutCheck(env, w, access, info, corpId); w.lastUndercut = new Date().toISOString(); w.undercutError = null; }
+      catch (e) { w.undercutError = e.message; }
+    }
 
     // Forget contracts that dropped off ESI (old ones) so the record stays small.
     for (const id of Object.keys(seen)) if (!couriers.has(Number(id))) delete seen[id];
