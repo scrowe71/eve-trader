@@ -50,7 +50,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -679,7 +679,7 @@
       const pick = settings.dDemand;
       // Restock mode: what sold at the hub since your last haul goes first, at least as many as sold.
       const restock = new Map();
-      let restockNote = "";
+      let restockNote = "", restockDays = 1;
       if (settings.dPriority === "restock") {
         status("Reading what you sold since your last haul…", "busy");
         try {
@@ -689,6 +689,7 @@
           jRaw.tx.forEach((t) => {
             if (!t.is_buy && t.location_id === hub.id && Date.parse(t.date) >= last) restock.set(t.type_id, (restock.get(t.type_id) || 0) + t.quantity);
           });
+          restockDays = Math.max(1, (Date.now() - last) / 86400000);
           restockNote = `Restocking ${restock.size} item${restock.size === 1 ? "" : "s"} sold since your last haul (${new Date(last).toLocaleString()}). `;
         } catch (e) {
           restockNote = "Couldn't read your sales for restocking (" + e.message + "). ";
@@ -708,8 +709,16 @@
       // Items you sold that aren't on the tracker: restock what sold.
       restock.forEach((sold, typeId) => {
         if (inTracker.has(typeId)) return;
-        items.push({ typeId, name: "", stock: 0, a7: 0, a30: 0, alert: "", cls: "Restock", kind: "", demand: 0, need: sold, sold, daysLeft: Infinity });
+        items.push({ typeId, name: "", stock: 0, a7: 0, a30: 0, alert: "", cls: "Restock", kind: "", demand: sold / restockDays, need: sold, sold, daysLeft: Infinity });
       });
+
+      // Leave out slow sellers.
+      let slowCount = 0;
+      if (settings.dMinDaily > 0) {
+        const before = items.length;
+        items = items.filter((d) => d.demand >= settings.dMinDaily);
+        slowCount = before - items.length;
+      }
 
       // Leave out item categories/groups you don't import (minerals, ore, ice, PI…).
       let excludedCount = 0;
@@ -720,7 +729,7 @@
         items = items.filter((d) => !inGroups(d.typeId, settings.dExclude));
         excludedCount = before - items.length;
       }
-      if (!items.length) { status(excludedCount ? `Everything short was in a category you don't import (${excludedCount} items).` : "Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
+      if (!items.length) { status(excludedCount || slowCount ? `Nothing left after filters: ${slowCount} sell under ${settings.dMinDaily}/day, ${excludedCount} are in categories you don't import.` : "Nothing on the tracker is short for that many days. Try more days to cover.", "ok"); return; }
 
       const agg = await loadHubAgg();
       status(`${intf(items.length)} tracker items are short. Pulling Jita prices…`, "busy");
@@ -856,6 +865,7 @@
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
+      if (slowCount) bits.push(`${slowCount} sell fewer than ${settings.dMinDaily} a day`);
       if (excludedCount) bits.push(`${excludedCount} are in categories you don't import (${settings.dExclude})`);
       if (skipped.spike) bits.push(`${skipped.spike} skipped because Jita is more than ${settings.dSpike}% above its 30-day average right now (${spikeNames.slice(0, 6).join(", ")}${spikeNames.length > 6 ? "…" : ""})`);
       if (skipped.thin) bits.push(`${skipped.thin} have no Jita 4-4 sell orders cheap enough to clear ${settings.dMinRoi}%`);
