@@ -104,6 +104,10 @@ Before building the buy list, each item's Jita price is compared with its 30-day
 
 When you load the Trade journal, the site works out the sales tax and hub broker fee CCP actually charged you, and compares them with your settings. If they differ, a banner offers a one-click fix.
 
+### Skills and open orders from the game
+
+The order-slot skills (Trade, Retail, Wholesale, Tycoon), Accounting, Broker Relations, Advanced Broker Relations and your open order count are read from your trading character on page load and before every Doctrine list build. So the buy list always fits your free order slots. This needs `esi-skills.read_skills.v1` on the EVE app, plus **Allow skill access** for the character on the Trade journal tab. The trading character is the one set under "Read corp wallet with", or the first character with skill access. You can still type the values in by hand; the next sync overwrites them.
+
 ## Sell prices
 
 When a haul lands, open the **Sell prices** tab and click **Price my stock**. It uses the wallets set up on the Trade journal tab to find what you bought in Jita and haven't sold yet, then shows for each item:

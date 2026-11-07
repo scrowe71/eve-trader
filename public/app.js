@@ -32,6 +32,7 @@
     "esi-wallet.read_corporation_wallets.v1",
     "esi-markets.read_character_orders.v1",      // Order check
     "esi-markets.read_corporation_orders.v1",
+    "esi-skills.read_skills.v1",                 // skills + order slots read from the game
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -170,6 +171,7 @@
 
   const hasWallet = (c) => !!(c && c.scopes && c.scopes.includes("esi-wallet.read_character_wallet.v1"));
   const hasOrders = (c) => !!(c && c.scopes && c.scopes.includes("esi-markets.read_character_orders.v1"));
+  const hasSkills = (c) => !!(c && c.scopes && c.scopes.includes("esi-skills.read_skills.v1"));
 
   async function handleCallback() {
     const q = new URLSearchParams(location.search);
@@ -468,6 +470,42 @@
     }
   }
 
+  // ---------- skills + open orders from the game ----------
+  const SKILL_IDS = { trade: 3443, retail: 3444, wholesale: 16596, tycoon: 18580, acc: 16622, br: 3446, abr: 16597 };
+  function traderChar() {
+    const list = Object.values(chars).filter(hasSkills);
+    return (settings.jCorpChar && chars[settings.jCorpChar] && hasSkills(chars[settings.jCorpChar])) ? chars[settings.jCorpChar] : list[0] || null;
+  }
+  async function syncFromGame(quiet = false) {
+    const c = traderChar();
+    if (!c) {
+      $("syncLine").textContent = "Typed in by hand. To read these from the game, add your trading character on the Trade journal tab and click \"Allow skill access\".";
+      return false;
+    }
+    try {
+      const sk = (await esi(`/characters/${c.charId}/skills/`, { auth: true, charId: c.charId })).data.skills || [];
+      const lvl = new Map(sk.map((x) => [x.skill_id, x.active_skill_level ?? x.trained_skill_level ?? 0]));
+      for (const [k, id] of Object.entries(SKILL_IDS)) settings[k] = lvl.get(id) || 0;
+      let open = settings.openOrders;
+      if (hasOrders(c)) {
+        try { open = (await esi(`/characters/${c.charId}/orders/`, { auth: true, charId: c.charId })).data.length; } catch {}
+      }
+      settings.openOrders = open;
+      SETTING_IDS.forEach((k) => { const el = $(k); if (el) el.value = settings[k]; });
+      store.set("settings", settings);
+      markSettingsChanged();
+      feeLine();
+      $("syncLine").textContent = `Read from ${c.name} at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: ` +
+        `Trade ${settings.trade}, Retail ${settings.retail}, Wholesale ${settings.wholesale}, Tycoon ${settings.tycoon}, ` +
+        `Accounting ${settings.acc}, Broker Relations ${settings.br}, Adv. Broker Relations ${settings.abr}; ${open} orders open.`;
+      return true;
+    } catch (e) {
+      if (!quiet) status("Couldn't read skills from the game: " + e.message, "err");
+      $("syncLine").textContent = `Couldn't read from ${c.name} (${e.message}). Using the values below.`;
+      return false;
+    }
+  }
+
   // 30-day average Jita (The Forge) price per item, cached for the day.
   let jitaHist = store.get("jitaHist", { date: "", data: {} });
   async function jitaAvg30(ids) {
@@ -572,6 +610,8 @@
     if (!doctrine || !hub) return;
     $("docRun").disabled = true;
     try {
+      status("Reading your skills and open orders…", "busy");
+      await syncFromGame(true);
       const pick = settings.dDemand;
       // Restock mode: what sold at the hub since your last haul goes first, at least as many as sold.
       const restock = new Map();
@@ -1172,10 +1212,10 @@
       nm.textContent = c.name + (token && token.charId === c.charId ? " (hub character)" : "");
       lab.append(cb, nm);
       row.append(img, lab);
-      if (!hasWallet(c) || !hasOrders(c)) {
+      if (!hasWallet(c) || !hasOrders(c) || !hasSkills(c)) {
         const b = document.createElement("button");
         b.type = "button";
-        b.textContent = hasWallet(c) ? "Allow order access" : "Allow wallet access";
+        b.textContent = !hasWallet(c) ? "Allow wallet access" : !hasOrders(c) ? "Allow order access" : "Allow skill access";
         b.title = "Log this character in again with wallet permissions";
         b.addEventListener("click", () => login("journal"));
         row.appendChild(b);
@@ -2367,6 +2407,7 @@
     $("tabJournal").addEventListener("click", () => setTab("journal"));
     $("tabSell").addEventListener("click", () => setTab("sell"));
     $("tabOrders").addEventListener("click", () => setTab("orders"));
+    $("syncBtn").addEventListener("click", () => syncFromGame(false).then((ok) => ok && status("Skills and open orders updated from the game.", "ok")));
     $("tabLiq").addEventListener("click", () => setTab("liq"));
     $("lRun").addEventListener("click", runLiquidate);
     try { $("lPaste").value = localStorage.getItem("liqPaste") || ""; } catch {}
@@ -2428,6 +2469,7 @@
     renderChars();
     renderAlerts();
     setTab(store.get("tab", "doc"));
+    syncFromGame(true);
     if (synced) { status("Settings and tracker updated from your other device.", "ok"); return; }
     if (!token) status("Log in with the character that can dock at your alliance hub.", "");
     else if (!hub) status(`Logged in as ${token.name}. Now find your hub structure.`, "ok");
