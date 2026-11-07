@@ -49,7 +49,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0,
+    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000,
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -1733,6 +1733,17 @@
         // Your buyback contact: % of Jita best buy, minus their fee; contract, so no sales tax or hauling.
         const bbUnit = settings.lBbPct > 0 && bestJitaBuy ? bestJitaBuy * settings.lBbPct / 100 * (1 - (settings.lBbFeePct || 0) / 100) : 0;
         if (listNetUnit <= Math.max(hubDumpUnit, jitaDumpUnit, bbUnit)) listQty = 0;
+        // Small stacks aren't worth the effort: send them all straight to the buyback.
+        const stackValue = q * bestJitaBuy;
+        if (bbUnit && settings.lBbUnder > 0 && stackValue < settings.lBbUnder) {
+          return {
+            typeId: t, name: it.name, qty: q, perDay, lowest, sellers: sells.length,
+            listQty: 0, listPrice: null, listNet: 0, days: 0,
+            dump: { route: "Buyback", qty: 0, net: 0, avg: 0, m3: 0 }, unsold: 0,
+            net: q * bbUnit, bbQty: q, bbNet: q * bbUnit, small: true,
+            plan: `Stack worth ${isk(stackValue)} (under ${isk(settings.lBbUnder)}): contract all ${intf(q)} to your buyback @ ${isk(bbUnit)} each`,
+          };
+        }
 
         // 2) Dump the rest. Each route uses buy orders only while they beat the buyback, then the buyback takes the remainder.
         const rest = q - listQty;
