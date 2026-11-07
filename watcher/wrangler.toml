@@ -10,7 +10,7 @@ crons = ["*/10 * * * *"]
 # Create it with:  npx wrangler kv namespace create WATCH   and paste the id below.
 [[kv_namespaces]]
 binding = "WATCH"
-id = "PASTE_KV_NAMESPACE_ID_HERE"
+id = "3372e1beeabe4ee2a4ef1ab40aabf101"
 
 [vars]
 EVE_CLIENT_ID = "d2d220b6f3734981ae7fdceeb8bcfde7"
