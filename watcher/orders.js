@@ -18,6 +18,12 @@ export const n = (v) => Math.round(v).toLocaleString("en-US");
 const tick = (p) => (p > 0 ? Math.pow(10, Math.floor(Math.log10(p)) - 3) : 0.01);
 const floorTick = (p) => { const t = tick(p); return Math.floor(p / t) * t; };
 
+// The free Workers plan allows 50 outside requests per run. worker.js counts every fetch here,
+// and the lookups below stop early (and finish on a later run) instead of going over.
+export const sub = { n: 0 };
+const LIMIT = 47;
+export const requestsLeft = () => LIMIT - sub.n;
+
 export async function names(ids) {
   const out = new Map();
   for (let i = 0; i < ids.length; i += 900) {
@@ -29,11 +35,18 @@ export async function names(ids) {
   return out;
 }
 
-export async function volumes(ids) {
-  const out = new Map();
-  await Promise.all(ids.map(async (id) => {
-    try { const t = await esiGet(`/universe/types/${id}/`); out.set(id, t.packaged_volume ?? t.volume ?? 0); } catch { out.set(id, 0); }
+// Item sizes never change, so they're kept in KV for good. New ones are looked up a few per run.
+export async function volumes(ids, env) {
+  const cache = (env && (await env.WATCH.get("cache:volumes", "json"))) || {};
+  const missing = [...new Set(ids)].filter((id) => cache[id] === undefined);
+  const take = missing.slice(0, Math.max(0, requestsLeft() - 4));
+  await Promise.all(take.map(async (id) => {
+    try { const t = await esiGet(`/universe/types/${id}/`); cache[id] = t.packaged_volume ?? t.volume ?? 0; } catch {}
   }));
+  if (take.length && env) await env.WATCH.put("cache:volumes", JSON.stringify(cache));
+  const out = new Map();
+  ids.forEach((id) => { if (cache[id] !== undefined) out.set(id, cache[id]); });
+  out.missing = missing.length - take.filter((id) => cache[id] !== undefined).length;
   return out;
 }
 
@@ -74,7 +87,7 @@ export async function loadContext(env, w, access, info, corpId) {
   }
   const seen = new Set();
   myOrders = myOrders.filter((o) => (seen.has(o.order_id) ? false : (seen.add(o.order_id), true)));
-  return { s, hub, tracker, tax, bf, keep, k, txs, taxRows, book, myOrders, marketNote };
+  return { env, s, hub, tracker, tax, bf, keep, k, txs, taxRows, book, myOrders, marketNote };
 }
 
 // Per item cost from Jita purchases (+ hauling) and sales at the hub.
@@ -92,14 +105,15 @@ export async function itemCosts(ctx) {
     }
   }
   const mine = [...items.values()].filter((r) => r.bq > 0);
-  const vol = await volumes(mine.map((r) => r.id));
+  const vol = await volumes(mine.map((r) => r.id), ctx.env);
   mine.forEach((r) => {
+    r.sized = vol.has(r.id);
     r.avg = r.bisk / r.bq;
     r.cost = r.avg + k * (s.haulRate * (vol.get(r.id) || 0) + (s.coll / 100) * r.avg);
     r.left = Math.max(0, r.bq - r.sold);
     r.min = r.cost * (1 + s.dMinRoi / 100) / keep;
   });
-  return { items, mine };
+  return { items, mine, sizesMissing: vol.missing || 0 };
 }
 
 // Demand per day for a set of item ids: tracker first, then regional history (cached in w.demand for the day).
@@ -107,10 +121,15 @@ export async function demandFor(ctx, w, ids) {
   const today = new Date().toISOString().slice(0, 10);
   if (!w.demand || w.demand.date !== today) w.demand = { date: today, d: {} };
   const out = new Map();
+  let budget = Math.max(0, requestsLeft() - 4);   // ids not looked up this run are left out of the map
   await Promise.all(ids.map(async (id) => {
     const t = ctx.tracker.get(id);
     if (t) { out.set(id, t.a30 || t.a7); return; }
-    if (w.demand.d[id] === undefined) w.demand.d[id] = ctx.hub ? await dailyAvg(ctx.hub.regionId, id) : 0;
+    if (w.demand.d[id] === undefined) {
+      if (!ctx.hub || budget <= 0) return;
+      budget--;
+      w.demand.d[id] = await dailyAvg(ctx.hub.regionId, id);
+    }
     out.set(id, w.demand.d[id]);
   }));
   return out;
@@ -125,7 +144,11 @@ export async function findUpdates(ctx, costs, w) {
   const demand = await demandFor(ctx, w, [...new Set(mySells.map((o) => o.type_id))]);
   const rr = 1 - (0.5 + 0.06 * Math.min(5, s.abr));
   const out = [];
+  let pending = 0;
   for (const o of mySells) {
+    const it0 = costs.items.get(o.type_id);
+    // Not enough information yet (size or demand still being looked up): check it on a later run.
+    if (!demand.has(o.type_id) || (it0 && it0.bq && !it0.sized)) { pending++; continue; }
     const others = book.filter((b) => b.type_id === o.type_id && !b.is_buy_order && !myIds.has(b.order_id));
     if (!others.length) continue;
     const lowest = Math.min(...others.map((b) => b.price));
@@ -146,5 +169,6 @@ export async function findUpdates(ctx, costs, w) {
   }
   const nm = await names([...new Set(out.map((u) => u.id))]);
   out.forEach((u) => (u.name = nm.get(u.id) || "Type " + u.id));
+  out.pending = pending;
   return out;
 }

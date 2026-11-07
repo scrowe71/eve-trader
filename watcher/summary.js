@@ -76,7 +76,8 @@ export async function undercutCheck(env, w, access, info, corpId) {
   }
   w.undercut = next;                          // orders no longer worth updating drop out, so a later undercut alerts again
   w.undercutInfo = { at, sells, worth: updates.length, posted: fresh.length,
-    note: !sells ? "Found none of your sell orders at the hub (the alert character needs to be in the corp that owns them, with order access)." : "" };
+    note: !sells ? "Found none of your sell orders at the hub (the alert character needs to be in the corp that owns them, with order access)."
+      : updates.pending ? `${updates.pending} orders skipped this time while item details are still being looked up; they're checked on the next runs.` : "" };
   if (!fresh.length) return;
   await discord(w.webhook, {
     content: `🔧 **${fresh.length} order${fresh.length === 1 ? " is" : "s are"} now worth updating** at ${ctx.hub.system || ctx.hub.name}`,

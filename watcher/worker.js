@@ -4,6 +4,11 @@
 
 import { refreshToken, tokenInfo, esiGet, discord, placeName } from "../shared/eve.js";
 import { postSummary, undercutCheck } from "./summary.js";
+import { sub, requestsLeft } from "./orders.js";
+
+// Count every outside request this run makes (free plan limit: 50 per run).
+const realFetch = globalThis.fetch.bind(globalThis);
+globalThis.fetch = (...a) => { sub.n++; return realFetch(...a); };
 
 const UNDERCUT_EVERY_MS = 29 * 60 * 1000;   // undercut check about every 30 minutes
 
@@ -160,7 +165,11 @@ async function checkOne(env, key, forceUndercut = false) {
     }
     try { await saveHauls(env, w, couriers); } catch (e) { w.archiveError = "Saving hauls: " + e.message; }
     try { await archiveWallets(env, w, access, info, corpId); } catch (e) { w.archiveError = "Wallet copy: " + e.message; }
-    if (forceUndercut || !w.lastUndercut || Date.now() - Date.parse(w.lastUndercut) >= UNDERCUT_EVERY_MS) {
+    const undercutDue = forceUndercut || !w.lastUndercut || Date.now() - Date.parse(w.lastUndercut) >= UNDERCUT_EVERY_MS;
+    if (undercutDue && requestsLeft() < 30) {
+      // The wallet copy used most of this run's requests: do the undercut check on the next run (10 minutes).
+      w.undercutInfo = { at: new Date().toISOString(), note: "Waiting for the next run (this one was busy copying wallets)." };
+    } else if (undercutDue) {
       try { await undercutCheck(env, w, access, info, corpId); w.lastUndercut = new Date().toISOString(); w.undercutError = null; }
       catch (e) { w.undercutError = e.message; w.undercutInfo = { at: new Date().toISOString(), note: "Error: " + e.message }; }
     }
@@ -183,12 +192,14 @@ async function checkOne(env, key, forceUndercut = false) {
 
 export default {
   async scheduled(event, env, ctx) {
+    sub.n = 0;
     const list = await env.WATCH.list({ prefix: "watch:" });
     if (event.cron === SUMMARY_CRON) { for (const k of list.keys) await summaryOne(env, k.name); return; }
     for (const k of list.keys) await checkOne(env, k.name);
   },
   // Visiting the worker's URL runs a check right away; add ?summary=1 to post the daily summary now.
   async fetch(request, env) {
+    sub.n = 0;
     const list = await env.WATCH.list({ prefix: "watch:" });
     if (new URL(request.url).searchParams.get("summary")) {
       const res = [];

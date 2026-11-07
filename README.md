@@ -265,3 +265,5 @@ The version number lives in `public/version.js` and shows at the bottom of both 
 ### Checking the undercut alert
 
 The watcher runs the undercut check about every 30 minutes on its own schedule (running Order check on the site doesn't send anything). The Alerts box shows the last check: how many of your sell orders it saw at the hub, how many were worth updating, and how many it posted, or why it couldn't check. To run it right now, open `https://eve-trader-watcher.scrowe71.workers.dev/?undercut=1`.
+
+The free Workers plan allows 50 outside requests per run, so the watcher counts them. Item sizes are cached in KV for good, new lookups are spread over several runs, and when the hourly wallet copy uses up a run, the undercut check waits for the next one (10 minutes later). Orders still waiting on a lookup are skipped until it's done.
