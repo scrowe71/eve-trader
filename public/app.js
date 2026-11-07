@@ -50,7 +50,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 7, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 7, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -405,9 +405,9 @@
     const agg = new Map();
     for (const o of orders) {
       let a = agg.get(o.type_id);
-      if (!a) { a = { sellMin: Infinity, sellQty: 0, sellOrders: 0, buyMax: 0, sellIds: [] }; agg.set(o.type_id, a); }
+      if (!a) { a = { sellMin: Infinity, sellQty: 0, sellOrders: 0, buyMax: 0, sellIds: [], sells: [] }; agg.set(o.type_id, a); }
       if (o.is_buy_order) { if (o.price > a.buyMax) a.buyMax = o.price; }
-      else { a.sellQty += o.volume_remain; a.sellOrders++; a.sellIds.push(o.order_id); if (o.price < a.sellMin) a.sellMin = o.price; }
+      else { a.sellQty += o.volume_remain; a.sellOrders++; a.sellIds.push(o.order_id); a.sells.push([o.price, o.volume_remain]); if (o.price < a.sellMin) a.sellMin = o.price; }
     }
     agg.orderCount = orders.length;
     return agg;
@@ -749,14 +749,19 @@
         if (!items.length) { status(`Nothing left: ${crowdedCount} short items already have ${settings.dMaxSellers}+ other sell orders at the hub.`, "ok"); return; }
       }
       // Leave out items the hub already has plenty of: listed units (everyone's, yours included) / daily sales.
+      // Only listings priced near the lowest count: overpriced ones aren't competing for buyers.
       let stockedCount = 0;
+      const stockedNames = [];
       if (settings.dMaxStockDays > 0) {
         const before = items.length;
+        const band = 1 + Math.max(0, settings.dStockBand || 0) / 100;
         items = items.filter((d) => {
           const h = agg.get(d.typeId);
-          const listed = h ? h.sellQty : 0;
+          const listed = h ? h.sells.filter(([p]) => p <= h.sellMin * band).reduce((a, [, q]) => a + q, 0) : 0;
           d.listedDays = listed === 0 ? 0 : d.demand > 0 ? listed / d.demand : Infinity;
-          return d.listedDays <= settings.dMaxStockDays;
+          const keep = d.listedDays <= settings.dMaxStockDays;
+          if (!keep) stockedNames.push(`${d.name || nameCache[d.typeId] || "Type " + d.typeId} (${isFinite(d.listedDays) ? d.listedDays.toFixed(1) : "∞"}d)`);
+          return keep;
         });
         stockedCount = before - items.length;
         if (!items.length) { status(`Nothing left: every short item already has more than ${settings.dMaxStockDays} days of stock listed at the hub.`, "ok"); return; }
@@ -894,7 +899,7 @@
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
-      if (stockedCount) bits.push(`${stockedCount} already have more than ${settings.dMaxStockDays} days of stock listed at the hub`);
+      if (stockedCount) bits.push(`${stockedCount} already have more than ${settings.dMaxStockDays} days of competitively priced stock listed at the hub (${stockedNames.slice(0, 8).join(", ")}${stockedNames.length > 8 ? "…" : ""})`);
       if (crowdedCount) bits.push(`${crowdedCount} already have ${settings.dMaxSellers} or more other sell orders at the hub`);
       if (slowCount) bits.push(`${slowCount} sell fewer than ${settings.dMinDaily} a day`);
       if (excludedCount) bits.push(`${excludedCount} are in categories you don't import (${settings.dExclude})`);
