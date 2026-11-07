@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EVE Trade Profit Calculator</title>
+<title>EveTrader Profit Calculator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -90,7 +90,8 @@ footer a { color: var(--accent); }
 <body>
 <div class="wrap">
   <header>
-    <h1>Trade Profit Calculator</h1>
+    <p style="margin:0 0 6px"><a href="index.html" style="color:var(--accent)">← Back to EveTrader</a></p>
+    <h1>EveTrader Profit Calculator</h1>
     <p>Enter the prices and it works out every fee: broker fees, sales tax, the cost of each order update, and hauling. It tells you whether the trade is worth doing and how many order updates you can make before the profit is gone.</p>
   </header>
 
@@ -241,7 +242,7 @@ footer a { color: var(--accent); }
 <script src="version.js"></script>
 <script>
 (function () {
-  try { const V = window.APP_VERSION; if (V) document.getElementById("ver").textContent = `Trade Profit Calculator v${V.number} · ${V.date}`; } catch (e) {}
+  try { const V = window.APP_VERSION; if (V) document.getElementById("ver").textContent = `EveTrader Profit Calculator v${V.number} · ${V.date}`; } catch (e) {}
   const $ = id => document.getElementById(id);
   const num = id => { const v = parseFloat($(id).value); return isFinite(v) ? v : 0; };
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));

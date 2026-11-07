@@ -83,7 +83,7 @@ export async function discord(webhook, payload) {
   const r = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(Object.assign({ username: "EVE Trader" }, payload)),
+    body: JSON.stringify(Object.assign({ username: "EveTrader" }, payload)),
   });
   if (!r.ok && r.status !== 204) {
     const e = new Error("Discord said " + r.status);

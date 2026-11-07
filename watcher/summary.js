@@ -160,7 +160,7 @@ export async function postSummary(env, w, access, info, corpId) {
   await discord(w.webhook, {
     content: `📊 **Daily trading summary** for ${w.name}: ${hub.system || hub.name}`,
     embeds: [{ color: profit24 >= 0 ? 0x4fbf7f : 0xe0605a, fields, timestamp: new Date().toISOString(),
-      footer: { text: "eve-trader · stock = bought in Jita minus sold at the hub" } }],
+      footer: { text: "EveTrader · stock = bought in Jita minus sold at the hub" } }],
   });
   return "sent";
 }

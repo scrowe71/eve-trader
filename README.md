@@ -1,10 +1,10 @@
-# EVE Import Finder
+# EveTrader
 
 This site compares your alliance hub (a player structure) with Jita 4-4 and lists the items worth importing. It accounts for your skills, broker fees, sales tax and alliance hauling. It runs on Cloudflare Pages, and you log in with EVE SSO.
 
 ```
 public/
-  index.html        the Import Finder
+  index.html        EveTrader (doctrine list, sell prices, order check, liquidate, journal)
   app.js            login, ESI calls, analysis
   config.js         your EVE Client ID goes here
   calculator.html   the single-trade profit calculator
