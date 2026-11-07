@@ -57,11 +57,15 @@ export async function postSummary(env, w, access, info, corpId) {
 
 // Undercut alert: post only orders that have newly become worth updating since the last check.
 export async function undercutCheck(env, w, access, info, corpId) {
-  if (!env.DB) return;
+  const at = new Date().toISOString();
+  if (!env.DB) { w.undercutInfo = { at, note: "The cloud database isn't connected to the worker." }; return; }
   const ctx = await loadContext(env, w, access, info, corpId);
-  if (!ctx.hub || ctx.s.oAlert === "off" || ctx.marketNote) return;
+  if (!ctx.hub) { w.undercutInfo = { at, note: "No hub saved in the cloud yet. Open the site and pick your hub once." }; return; }
+  if (ctx.s.oAlert === "off") { w.undercutInfo = { at, note: "Undercut alerts are switched off in Order check settings." }; return; }
+  if (ctx.marketNote) { w.undercutInfo = { at, note: ctx.marketNote }; return; }
   const costs = await itemCosts(ctx);
   const updates = await findUpdates(ctx, costs, w);
+  const sells = ctx.myOrders.filter((o) => !o.is_buy_order && o.location_id === ctx.hub.id).length;
   const prev = w.undercut || {};
   const next = {};
   const fresh = [];
@@ -71,6 +75,8 @@ export async function undercutCheck(env, w, access, info, corpId) {
     if (prev[u.orderId] !== key) fresh.push(u);
   }
   w.undercut = next;                          // orders no longer worth updating drop out, so a later undercut alerts again
+  w.undercutInfo = { at, sells, worth: updates.length, posted: fresh.length,
+    note: !sells ? "Found none of your sell orders at the hub (the alert character needs to be in the corp that owns them, with order access)." : "" };
   if (!fresh.length) return;
   await discord(w.webhook, {
     content: `🔧 **${fresh.length} order${fresh.length === 1 ? " is" : "s are"} now worth updating** at ${ctx.hub.system || ctx.hub.name}`,

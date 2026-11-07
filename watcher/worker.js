@@ -114,7 +114,7 @@ const fmtIsk = (v) => {
   return Math.round(v || 0).toLocaleString("en-US");
 };
 
-async function checkOne(env, key) {
+async function checkOne(env, key, forceUndercut = false) {
   const w = await env.WATCH.get(key, "json");
   if (!w) return;
   w.lastCheck = new Date().toISOString();
@@ -160,9 +160,9 @@ async function checkOne(env, key) {
     }
     try { await saveHauls(env, w, couriers); } catch (e) { w.archiveError = "Saving hauls: " + e.message; }
     try { await archiveWallets(env, w, access, info, corpId); } catch (e) { w.archiveError = "Wallet copy: " + e.message; }
-    if (!w.lastUndercut || Date.now() - Date.parse(w.lastUndercut) >= UNDERCUT_EVERY_MS) {
+    if (forceUndercut || !w.lastUndercut || Date.now() - Date.parse(w.lastUndercut) >= UNDERCUT_EVERY_MS) {
       try { await undercutCheck(env, w, access, info, corpId); w.lastUndercut = new Date().toISOString(); w.undercutError = null; }
-      catch (e) { w.undercutError = e.message; }
+      catch (e) { w.undercutError = e.message; w.undercutInfo = { at: new Date().toISOString(), note: "Error: " + e.message }; }
     }
 
     // Forget contracts that dropped off ESI (old ones) so the record stays small.
@@ -195,7 +195,17 @@ export default {
       for (const k of list.keys) res.push(await summaryOne(env, k.name));
       return new Response(`Summary: ${res.join(", ") || "no watchers"}\n`, { headers: { "Content-Type": "text/plain" } });
     }
-    for (const k of list.keys) await checkOne(env, k.name);
+    const force = !!new URL(request.url).searchParams.get("undercut");
+    const out = [];
+    for (const k of list.keys) {
+      await checkOne(env, k.name, force);
+      if (force) {
+        const w = JSON.parse((await env.WATCH.get(k.name)) || "{}");
+        const u = w.undercutInfo || {};
+        out.push(`${w.name}: ${u.note || `${u.sells} sell orders at the hub, ${u.worth} worth updating, ${u.posted} posted to Discord (already-posted ones aren't repeated)`}`);
+      }
+    }
+    if (force) return new Response(`Undercut check:\n${out.join("\n") || "no watchers"}\n`, { headers: { "Content-Type": "text/plain" } });
     return new Response(`Checked ${list.keys.length} watcher(s).\n`, { headers: { "Content-Type": "text/plain" } });
   },
 };

@@ -1374,7 +1374,12 @@
         (j.cloud
           ? (j.lastArchive ? ` Cloud history: wallets last copied ${new Date(j.lastArchive).toLocaleString()} (${(j.sources || []).join(", ") || "none yet"}).` : " Cloud history: first wallet copy happens on the next check.") +
             (j.archiveError ? ` Cloud problem: ${j.archiveError}` : "")
-          : " Cloud history isn't set up yet (see README).");
+          : " Cloud history isn't set up yet (see README).") +
+        (j.undercut
+          ? ` Undercut check ${new Date(j.undercut.at).toLocaleString()}: ` + (j.undercut.note && j.undercut.sells === undefined
+            ? j.undercut.note
+            : `${j.undercut.sells} sell orders at the hub, ${j.undercut.worth} worth updating, ${j.undercut.posted} newly posted.${j.undercut.note ? " " + j.undercut.note : ""}`)
+          : " Undercut check: hasn't reported yet (redeploy the watcher).");
       drawWatched(j.contracts || [], j.lastCheck);
     } catch (e) {
       $("aState").textContent = `Alerts were turned on for ${a.name}, but I couldn't check their status (${e.message}).`;

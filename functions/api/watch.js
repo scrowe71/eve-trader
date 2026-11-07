@@ -51,7 +51,7 @@ export async function onRequest({ request, env }) {
     contracts.sort((a, b) => String(b.date_issued || "").localeCompare(String(a.date_issued || "")));
     return json({ on: true, contracts, name: w.name, corp: w.corp, lastCheck: w.lastCheck || null, lastError: w.lastError || null,
       tracking: Object.keys(w.seen || {}).length, lastArchive: w.lastArchive || null, archiveError: w.archiveError || null,
-      sources: w.sources || [], cloud: !!env.DB });
+      sources: w.sources || [], cloud: !!env.DB, undercut: w.undercutInfo || null });
   }
 
   if (request.method === "DELETE") {
