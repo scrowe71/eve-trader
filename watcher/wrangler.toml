@@ -16,7 +16,7 @@ id = "3372e1beeabe4ee2a4ef1ab40aabf101"
 [[d1_databases]]
 binding = "DB"
 database_name = "eve-trader"
-database_id = "PASTE_D1_DATABASE_ID_HERE"
+database_id = "7d901161-e09c-4d26-baef-a2e2c156cf4f"
 
 [vars]
 EVE_CLIENT_ID = "d2d220b6f3734981ae7fdceeb8bcfde7"
