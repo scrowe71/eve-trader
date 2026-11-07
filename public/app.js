@@ -599,8 +599,8 @@
 
   function setDoctrine(text, label) {
     doctrine = parseDoctrine(text);
-    const seed = doctrine.filter((d) => d.cls === "Seeding").length;
-    const src = { label, at: new Date().toLocaleString(), count: doctrine.length, seed };
+    const seed = doctrine.filter((d) => d.cls === "Seeding" || !d.cls).length;
+    const src = { label, at: new Date().toLocaleString(), count: doctrine.length, seed, noCls: doctrine.every((d) => !d.cls) };
     try { localStorage.setItem("doctrineCsv", text); } catch {}
     store.set("doctrineSrc", src);
     markSettingsChanged();
@@ -611,7 +611,7 @@
 
   function showDocSource(src) {
     $("docSource").textContent = src
-      ? `Loaded ${intf(src.count)} items (${intf(src.seed)} Seeding) from ${src.label} · ${src.at}`
+      ? `Loaded ${intf(src.count)} items ` + (src.noCls ? "(no Seeding/Industry column, so all are included)" : `(${intf(src.seed)} Seeding)`) + ` from ${src.label} · ${src.at}`
       : "No tracker loaded yet.";
   }
 
@@ -660,7 +660,7 @@
 
       const inTracker = new Set(doctrine.map((d) => d.typeId));
       let items = doctrine
-        .filter((d) => settings.dClasses === "all" || d.cls === "Seeding" || restock.has(d.typeId))
+        .filter((d) => settings.dClasses === "all" || d.cls === "Seeding" || !d.cls || restock.has(d.typeId))
         .map((d) => {
           const demand = pick === "a7" ? d.a7 : pick === "max" ? Math.max(d.a7, d.a30) : (d.a30 || d.a7);
           const sold = restock.get(d.typeId) || 0;
