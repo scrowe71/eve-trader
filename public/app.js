@@ -23,10 +23,10 @@
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
     haulRate: 800, coll: 1, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
-    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000,
+    dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout",
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
   };
-  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow"]);
+  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   let token = store.get("token", null);
   let hub = store.get("hub", null);
@@ -523,7 +523,8 @@
       }
 
       // Fill best-first by total profit until budget / cargo runs out.
-      priced.sort((a, b) => b.profit * b.qty - a.profit * a.qty);
+      const soldFirst = settings.dPriority === "soldout";
+      priced.sort((a, b) => (soldFirst && a.est !== b.est ? (a.est ? -1 : 1) : 0) || (b.profit * b.qty - a.profit * a.qty));
       let budgetLeft = settings.dBudget > 0 ? settings.dBudget : Infinity;
       let cargoLeft = settings.dCargo > 0 ? settings.dCargo : Infinity;
       const maxItems = freeSlots();
@@ -538,6 +539,7 @@
         p.totalSpend = q * p.unitSpend;
         p.totalM3 = q * p.vol;
         p.totalProfit = q * p.profit;
+        p.rank = docResults.length + 1;
         budgetLeft -= p.totalSpend;
         cargoLeft -= p.totalM3;
         docResults.push(p);
@@ -555,7 +557,7 @@
       if (skipped.budget) bits.push(`${skipped.budget} didn't fit the budget or cargo`);
       $("dSkipped").textContent = bits.length ? "Left out: " + bits.join(", ") + "." : "";
       $("docResults").classList.remove("hidden");
-      docSort = { key: "totalProfit", dir: -1 };
+      docSort = { key: "rank", dir: 1 };
       drawDocTable();
       status(docResults.length
         ? `Buy list ready: ${docResults.length} items, ${isk(sum("totalSpend"))} to spend, about ${isk(sum("totalProfit"))} profit.`
@@ -583,6 +585,7 @@
   }
 
   const DOC_COLS = [
+    { k: "rank", label: "#", f: intf },
     { k: "name", label: "Item" },
     { k: "cls", label: "Type" },
     { k: "hubListed", label: "Hub listings" },
@@ -607,7 +610,7 @@
       if (c.k === docSort.key) th.setAttribute("aria-sort", docSort.dir < 0 ? "descending" : "ascending");
       const go = () => {
         if (docSort.key === c.k) docSort.dir = -docSort.dir;
-        else docSort = { key: c.k, dir: ["name", "cls", "daysLeft", "hubListed"].includes(c.k) ? 1 : -1 };
+        else docSort = { key: c.k, dir: ["rank", "name", "cls", "daysLeft", "hubListed"].includes(c.k) ? 1 : -1 };
         drawDocTable();
       };
       th.addEventListener("click", go);

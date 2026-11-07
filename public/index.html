@@ -212,6 +212,9 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Total budget<input id="dBudget" type="number" step="100000000" min="0"></label>
           <label>Minimum profit per item (total)<input id="dMinProfit" type="number" step="500000" min="0"></label>
           <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
+          <label>Fill slots with
+            <select id="dPriority"><option value="soldout">Sold-out items first</option><option value="profit">Most profit first</option></select>
+          </label>
           <label>Show
             <select id="dShow"><option value="all">All items</option><option value="soldout">Sold out at hub only</option></select>
           </label>
@@ -232,7 +235,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <div class="tile"><span class="k">Expected profit</span><span class="v" id="dProfit">–</span></div>
         </div>
         <p class="callout-line" id="dSoldOut"></p>
-        <p class="hint">Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget, cargo or your free order slots run out. Lines making less than your minimum profit in total are left out. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar, so the sell price is your sold-out markup on the Jita cost. Profit assumes everything sells at today's hub price.</p>
+        <p class="hint">With "Sold-out items first", items nobody is selling at the Keepstar get your order slots and budget before anything else; the # column shows that order. Quantity = days to cover × daily usage − hub stock, capped by your per-item limit, then filled best-first until the budget, cargo or your free order slots run out. Lines making less than your minimum profit in total are left out. Hub prices marked <span class="est">EST</span> are sold out at the Keepstar, so the sell price is your sold-out markup on the Jita cost. Profit assumes everything sells at today's hub price.</p>
         <div class="tablewrap">
           <table>
             <thead><tr id="dThead"></tr></thead>
