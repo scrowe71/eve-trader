@@ -96,6 +96,14 @@ On the Doctrine list, set **Fill slots with** to **Restock what sold since last 
 
 The Trade journal shows your trading wallet division's balance, plus your stock at cost, split into: listed at the hub, in transit on courier contracts, and not listed yet.
 
+### Jita spike check
+
+Before building the buy list, each item's Jita price is compared with its 30-day Jita average. Items more than the **spike limit** above it (default 15%) are left out by default, so you don't restock right after a price jump. You can switch it to **keep but flag**, which shows an orange +N% chip on the Jita cost.
+
+### Fee check
+
+When you load the Trade journal, the site works out the sales tax and hub broker fee CCP actually charged you, and compares them with your settings. If they differ, a banner offers a one-click fix.
+
 ## Sell prices
 
 When a haul lands, open the **Sell prices** tab and click **Price my stock**. It uses the wallets set up on the Trade journal tab to find what you bought in Jita and haven't sold yet, then shows for each item:

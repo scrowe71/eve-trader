@@ -49,10 +49,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal",
+    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["lBbExclude", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["lBbExclude", "dSpikeAct", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -468,6 +468,24 @@
     }
   }
 
+  // 30-day average Jita (The Forge) price per item, cached for the day.
+  let jitaHist = store.get("jitaHist", { date: "", data: {} });
+  async function jitaAvg30(ids) {
+    if (jitaHist.date !== today) jitaHist = { date: today, data: {} };
+    const need = ids.filter((id) => jitaHist.data[id] === undefined);
+    await pool(need, 10, async (id) => {
+      try {
+        const h = (await esi(`/markets/${JITA_REGION}/history/?type_id=${id}`)).data;
+        const cut = Date.now() - 30 * 86400000;
+        const rec = h.filter((d) => Date.parse(d.date) >= cut);
+        const vol = rec.reduce((a, d) => a + d.volume, 0);
+        jitaHist.data[id] = vol ? rec.reduce((a, d) => a + d.average * d.volume, 0) / vol : 0;
+      } catch { jitaHist.data[id] = 0; }
+    });
+    store.set("jitaHist", jitaHist);
+    return jitaHist.data;
+  }
+
   // ---------- doctrine list ----------
   let doctrine = null;       // parsed tracker rows
   let docResults = [];
@@ -599,7 +617,7 @@
       const tax = salesTax(), bfH = hubBroker(), bfJ = jitaBroker();
       const minRoi = settings.dMinRoi / 100;
       const k = 1 - Math.min(100, Math.max(0, settings.haulDisc || 0)) / 100;   // hauling discount factor
-      const priced = [], skipped = { noJita: 0, lowRoi: 0, thin: 0, lowProfit: 0, slots: 0, budget: 0 };
+      const priced = [], skipped = { noJita: 0, lowRoi: 0, thin: 0, lowProfit: 0, slots: 0, budget: 0, spike: 0 }, spikeNames = [];
 
       // Pass 1: screen on Jita's best price.
       const screened = [];
@@ -672,6 +690,19 @@
         });
       });
 
+      // Jita price spike check: compare what you'd pay with the 30-day Jita average.
+      if (settings.dSpike > 0 && priced.length) {
+        status("Checking Jita prices against their 30-day average…", "busy");
+        const avgs = await jitaAvg30(priced.map((p) => p.typeId));
+        for (let i = priced.length - 1; i >= 0; i--) {
+          const p = priced[i], a = avgs[p.typeId];
+          if (!a) continue;
+          p.avg30 = a;
+          p.spike = p.cost / a - 1;
+          if (p.spike > settings.dSpike / 100 && settings.dSpikeAct === "skip") { priced.splice(i, 1); skipped.spike = (skipped.spike || 0) + 1; spikeNames.push(p.name || nameCache[p.typeId] || "Type " + p.typeId); }
+        }
+      }
+
       // Fill best-first by total profit until budget / cargo runs out.
       const soldFirst = settings.dPriority === "soldout" || settings.dPriority === "restock";
       const restockFirst = settings.dPriority === "restock";
@@ -706,6 +737,7 @@
       const bits = [];
       if (skipped.noJita) bits.push(`${skipped.noJita} have no Jita price`);
       if (skipped.lowRoi) bits.push(`${skipped.lowRoi} are under ${settings.dMinRoi}% return`);
+      if (skipped.spike) bits.push(`${skipped.spike} skipped because Jita is more than ${settings.dSpike}% above its 30-day average right now (${spikeNames.slice(0, 6).join(", ")}${spikeNames.length > 6 ? "…" : ""})`);
       if (skipped.thin) bits.push(`${skipped.thin} have no Jita 4-4 sell orders cheap enough to clear ${settings.dMinRoi}%`);
       if (skipped.lowProfit) bits.push(`${skipped.lowProfit} would make under ${isk(settings.dMinProfit)} in total`);
       if (skipped.slots) bits.push(`${skipped.slots} more were cut because you have ${maxItems} free order slots`);
@@ -842,7 +874,17 @@
               ? `Capped by your ${settings.dMinRoi}% minimum return. Expected ${isk(r.cost)}; above ${isk(r.payMax)} each, this item isn't worth it.`
               : `Expected ${isk(r.cost)} + ${settings.dTol}% allowance. Your ${settings.dMinRoi}% return still holds up to ${isk(r.maxAvg)} each.`;
           }
-          if (c.k === "cost") td.title = `Average over the orders you'd buy. Cheapest ${isk(r.best)}, most expensive ${isk(r.worst)}.`;
+          if (c.k === "cost") {
+            td.title = `Average over the orders you'd buy. Cheapest ${isk(r.best)}, most expensive ${isk(r.worst)}.` +
+              (r.avg30 ? ` 30-day Jita average ${isk(r.avg30)} (${r.spike >= 0 ? "+" : ""}${(r.spike * 100).toFixed(0)}%).` : "");
+            if (r.spike > settings.dSpike / 100) {
+              const ch = document.createElement("span");
+              ch.className = "chip orange"; ch.style.marginLeft = "4px";
+              ch.textContent = `+${(r.spike * 100).toFixed(0)}%`;
+              ch.title = "Jita is above its 30-day average right now";
+              td.appendChild(ch);
+            }
+          }
           if (c.k === "qty" && r.short) { td.title = `Short by ${intf(r.need)}, but only ${intf(r.qty)} are cheap enough in Jita (or your per-item cap stopped it).`; td.className = "warnc"; }
           if (c.k === "demand") td.title = `7-day avg ${r.a7.toFixed(1)} / day · 30-day avg ${r.a30.toFixed(1)} / day`;
         }
@@ -1380,7 +1422,7 @@
         $("jNote").textContent += ` Courier contracts Jita → hub since the start: ${myHauls.length}, actually paid ${isk(paid)} (the estimate for everything bought is ${isk(est)}).`;
       }
 
-      if (show) await whereIsk(hauls);
+      if (show) { await whereIsk(hauls); await feeCheck(inP, uniq); }
       jSort = { key: "profit", dir: -1 };
       drawJournal();
       if (show) {
@@ -1559,6 +1601,78 @@
       frag.appendChild(row);
     });
     tb.appendChild(frag);
+  }
+
+  // ---------- fee check from the wallet ----------
+  // Works out the sales tax and hub broker fee CCP actually charged and compares them with your settings.
+  async function feeCheck(entries, txs) {
+    const box = $("feeBanner");
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    const parts = [], fixes = [];
+
+    // Sales tax: each tax entry points at the sale it was charged on.
+    const saleValue = new Map(txs.filter((t) => !t.is_buy).map((t) => [t.transaction_id, t.quantity * t.unit_price]));
+    let taxIsk = 0, taxBase = 0;
+    entries.filter((e) => e.ref_type === "transaction_tax" && saleValue.has(e.context_id)).forEach((e) => {
+      taxIsk += -(e.amount || 0); taxBase += saleValue.get(e.context_id);
+    });
+    if (taxBase > 0) {
+      const real = taxIsk / taxBase * 100, mine = salesTax() * 100;
+      const ok = Math.abs(real - mine) < 0.1;
+      parts.push(`sales tax ${real.toFixed(2)}% (settings ${mine.toFixed(2)}% ${ok ? "✓" : "✗"})`);
+      if (!ok) {
+        const acc = Math.max(0, Math.min(5, Math.round((1 - real / 7.5) / 0.11)));
+        fixes.push({ label: `Set Accounting to ${acc}`, apply: () => { settings.acc = acc; } });
+      }
+    }
+
+    // Hub broker fee: compare the fee charged on each open hub order with that order's value.
+    const cid = settings.jCorpChar && chars[settings.jCorpChar] ? settings.jCorpChar : (Object.values(chars).find((c) => hasOrders(c)) || {}).charId;
+    if (hub && cid && hasOrders(chars[cid])) {
+      try {
+        const corpId = (await esi(`/characters/${cid}/`)).data.corporation_id;
+        let ords = await allPages(`/corporations/${corpId}/orders/`, cid);
+        try { ords = ords.concat((await esi(`/characters/${cid}/orders/`, { auth: true, charId: cid })).data); } catch {}
+        const hubSells = new Map(ords.filter((o) => !o.is_buy_order && o.location_id === hub.id).map((o) => [o.order_id, o]));
+        // Add up fees charged on the same order at the same moment (broker fee + SCC surcharge may be
+        // separate entries), then take each order's largest charge: that's the original listing fee.
+        const byOrder = new Map();
+        entries.filter((e) => (e.amount || 0) < 0 && hubSells.has(e.context_id) && /broker|scc|surcharge/i.test(e.ref_type || "")).forEach((e) => {
+          const m = byOrder.get(e.context_id) || new Map();
+          m.set(e.date, (m.get(e.date) || 0) - e.amount);
+          byOrder.set(e.context_id, m);
+        });
+        const maxFee = new Map([...byOrder.entries()].map(([id, m]) => [id, Math.max(...m.values())]));
+        const rates = [...maxFee.entries()].map(([id, fee]) => { const o = hubSells.get(id); return fee / (o.volume_total * o.price) * 100; })
+          .filter((r) => r > 0.2 && r < 20).sort((a, b) => a - b);
+        if (rates.length) {
+          const real = Math.round(rates[Math.floor(rates.length / 2)] * 100) / 100;
+          const ok = Math.abs(real - settings.hubFee) < 0.15;
+          parts.push(`hub broker fee ${real.toFixed(2)}% from ${rates.length} order${rates.length === 1 ? "" : "s"} (settings ${settings.hubFee}% ${ok ? "✓" : "✗"})`);
+          if (!ok) fixes.push({ label: `Set hub broker fee to ${real}%`, apply: () => { settings.hubFee = real; } });
+        }
+      } catch {}
+    }
+    if (!parts.length) return;
+    const msg = document.createElement("span");
+    msg.textContent = (fixes.length ? "Your wallet disagrees with your settings: " : "Fees check out against your wallet: ") + parts.join(" · ") + ".";
+    box.appendChild(msg);
+    fixes.forEach((f) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "primary"; b.textContent = f.label;
+      b.addEventListener("click", () => {
+        f.apply();
+        SETTING_IDS.forEach((k) => { const el = $(k); if (el) el.value = settings[k]; });
+        store.set("settings", settings);
+        markSettingsChanged();
+        feeLine();
+        b.disabled = true; b.textContent = "Done";
+        status("Settings updated from your wallet. Rebuild lists to use them.", "ok");
+      });
+      box.appendChild(b);
+    });
+    box.className = "banner" + (fixes.length ? "" : " okbanner");
   }
 
   // ---------- where's my ISK ----------

@@ -111,6 +111,7 @@ textarea { font: 13px var(--mono); color: var(--ink); background: var(--bg); bor
 .today .big { font: 700 34px var(--display); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 .summary.isk5 { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 900px) { .summary.isk5 { grid-template-columns: 1fr 1fr; } }
+.banner.okbanner { background: color-mix(in srgb, var(--good) 10%, var(--bg)); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
 ul.tight { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 #jResults th, #jResults td { padding: 6px 5px; }
 #jResults th.name, #jResults td.name { text-align: left; white-space: normal; min-width: 150px; max-width: 260px; font-family: var(--body); }
@@ -253,6 +254,10 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Max ISK per item<input id="dItemCap" type="number" step="10000000" min="0"></label>
           <label>Total budget<input id="dBudget" type="number" step="100000000" min="0"></label>
           <label>Multibuy allowance %<input id="dTol" type="number" step="0.5" min="0"></label>
+          <label>Jita spike limit % over 30-day avg (0 = off)<input id="dSpike" type="number" step="1" min="0"></label>
+          <label>Items over the spike limit
+            <select id="dSpikeAct"><option value="skip">Leave them out</option><option value="flag">Keep, but flag them</option></select>
+          </label>
           <label>Minimum profit per item (total)<input id="dMinProfit" type="number" step="500000" min="0"></label>
           <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
           <label>Fill slots with
@@ -395,6 +400,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
       <section class="panel hidden" id="jPanel" aria-labelledby="hJ">
         <h2 id="hJ">Trade journal</h2>
         <div id="divBanner" class="banner hidden" role="alert"></div>
+        <div id="feeBanner" class="banner hidden" role="status"></div>
         <p class="hint">Reads your actual buys, sales, taxes and broker fees from the wallet and shows what each item really made. Add every character that buys or sells, with wallet access.</p>
         <div class="source">
           <h3>Characters</h3>

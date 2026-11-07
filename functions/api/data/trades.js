@@ -26,7 +26,7 @@ export async function onRequestGet({ request, env }) {
     out.transactions = tx.results.map((t) => ({ ...t, is_buy: !!t.is_buy }));
     const jr = await env.DB.prepare(
       `SELECT id, source, date, ref_type, amount, context_id, context_id_type FROM journal
-       WHERE source IN (${marks}) AND date >= ? AND ref_type IN ('brokers_fee', 'transaction_tax') LIMIT 50000`).bind(...sources, since).all();
+       WHERE source IN (${marks}) AND date >= ? AND (ref_type IN ('brokers_fee', 'transaction_tax') OR ref_type LIKE '%surcharge%' OR ref_type LIKE '%scc%') LIMIT 50000`).bind(...sources, since).all();
     out.journal = jr.results;
   }
   const h = await env.DB.prepare("SELECT * FROM hauls WHERE owner = ? AND date_issued >= ? ORDER BY date_issued DESC").bind(w.charId, since).all();
