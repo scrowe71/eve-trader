@@ -341,6 +341,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Their fee %<input id="lBbFeePct" type="number" min="0" step="0.5"></label>
           <label>Flat fee per contract (ISK)<input id="lBbFlat" type="number" min="0" step="1000000"></label>
           <label class="full">Send the whole stack to the buyback if it's worth less than (ISK, at Jita buy)<input id="lBbUnder" type="number" min="0" step="5000000"></label>
+          <label class="full">Buyback won't take these item groups (comma-separated, matches the group name)<input id="lBbExclude" type="text"></label>
         </div>
         <div class="row"><button type="button" class="primary" id="lRun">Plan the sale</button></div>
       </section>

@@ -49,10 +49,10 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000,
+    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
+  const TEXT_SETTINGS = new Set(["lBbExclude", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   // Repair: v2.0–2.1 stored the corp-wallet switch under "jCorp", the Caldari Navy standing's key.
   if (typeof settings.jCorp !== "number" || !isFinite(settings.jCorp)) {
@@ -296,6 +296,22 @@
   const today = new Date().toISOString().slice(0, 10);
   let histCache = store.get("histCache", { date: "", region: 0, data: {} });
   if (histCache.date !== today || (hub && histCache.region !== hub.regionId)) histCache = { date: today, region: hub ? hub.regionId : 0, data: {} };
+
+  // Item group names (e.g. "Frequency Crystal"), cached in the browser.
+  const groupOfType = store.get("groupOfType", {});   // type_id -> group_id
+  const groupName = store.get("groupName", {});       // group_id -> name
+  async function groups(ids) {
+    const needT = ids.filter((id) => groupOfType[id] === undefined);
+    await pool(needT, 10, async (id) => {
+      try { groupOfType[id] = (await esi(`/universe/types/${id}/`)).data.group_id; } catch { groupOfType[id] = 0; }
+    });
+    const needG = [...new Set(ids.map((id) => groupOfType[id]).filter((g) => g && groupName[g] === undefined))];
+    await pool(needG, 10, async (g) => {
+      try { groupName[g] = (await esi(`/universe/groups/${g}/`)).data.name; } catch { groupName[g] = ""; }
+    });
+    store.set("groupOfType", groupOfType);
+    store.set("groupName", groupName);
+  }
 
   async function volumes(ids) {
     const need = ids.filter((id) => volCache[id] === undefined);
@@ -1695,6 +1711,9 @@
       status("Downloading hub orders…", "busy");
       const book = await hubOrders(hub.id);
       await volumes(list.map((i) => i.typeId));
+      await groups(list.map((i) => i.typeId));
+      const noBb = String(settings.lBbExclude || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+      const bbRefuses = (t) => { const g = (groupName[groupOfType[t]] || "").toLowerCase(); return noBb.some((x) => g.includes(x)); };
       const tracker = new Map((doctrine || []).map((d) => [d.typeId, d]));
       const needHist = list.map((i) => i.typeId).filter((t) => !tracker.get(t));
       if (needHist.length) await dailyVolumes(needHist, hub.regionId);
@@ -1731,7 +1750,8 @@
         const hubDumpUnit = hubBuys.length ? Math.max(...hubBuys.map((o) => o.price)) * (1 - tax) : 0;
         const jitaDumpUnit = bestJitaBuy ? bestJitaBuy * (1 - tax) - k * (settings.haulRate * vol + (settings.coll / 100) * bestJitaBuy) : 0;
         // Your buyback contact: % of Jita best buy, minus their fee; contract, so no sales tax or hauling.
-        const bbUnit = settings.lBbPct > 0 && bestJitaBuy ? bestJitaBuy * settings.lBbPct / 100 * (1 - (settings.lBbFeePct || 0) / 100) : 0;
+        const refused = bbRefuses(t);
+        const bbUnit = !refused && settings.lBbPct > 0 && bestJitaBuy ? bestJitaBuy * settings.lBbPct / 100 * (1 - (settings.lBbFeePct || 0) / 100) : 0;
         if (listNetUnit <= Math.max(hubDumpUnit, jitaDumpUnit, bbUnit)) listQty = 0;
         // Small stacks aren't worth the effort: send them all straight to the buyback.
         const stackValue = q * bestJitaBuy;
@@ -1775,7 +1795,8 @@
         return {
           typeId: t, name: it.name, qty: q, perDay, lowest, sellers: sells.length,
           listQty, listPrice, listNet, days, dump, unsold,
-          net: listNet + dump.net + dump.bbNet, bbQty: dump.bbQty, bbNet: dump.bbNet, plan: plan.join(" · "),
+          net: listNet + dump.net + dump.bbNet, bbQty: dump.bbQty, bbNet: dump.bbNet, refused,
+          plan: (refused ? `Buyback won't take ${groupName[groupOfType[t]] || "this item"}. ` : "") + plan.join(" · "),
         };
       });
       lRows.sort((a, b) => b.net - a.net);
@@ -1808,7 +1829,8 @@
     lRows.forEach((r) => {
       const tr = document.createElement("tr");
       const add = (v, cls) => { const td = document.createElement("td"); if (cls) td.className = cls; td.textContent = v; tr.appendChild(td); return td; };
-      add(r.name, "name");
+      const nm = add(r.name, "name");
+      if (r.refused) { const c = document.createElement("span"); c.className = "chip bad"; c.style.marginLeft = "6px"; c.textContent = "NO BUYBACK"; nm.appendChild(c); }
       add(intf(r.qty));
       add(r.perDay ? (r.perDay >= 100 ? intf(r.perDay) : r.perDay.toFixed(1)) : "–");
       add(r.lowest === null ? "none" : `${isk(r.lowest)} (${r.sellers})`);
