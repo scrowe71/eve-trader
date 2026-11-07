@@ -1,0 +1,7 @@
+# Always check for a newer version of the site's own files, so the page and its scripts never mismatch.
+/*.html
+  Cache-Control: no-cache
+/*.js
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
