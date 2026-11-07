@@ -625,6 +625,9 @@
     const rows = visibleDocRows();
     const sum = (k) => rows.reduce((a, r) => a + r[k], 0);
     $("dItems").textContent = intf(rows.length);
+    const jitaTotal = rows.reduce((t, r) => t + r.qty * r.cost, 0);
+    $("dJita").textContent = isk(jitaTotal);
+    $("dHaul").textContent = isk(sum("totalSpend") - jitaTotal);
     $("dSpend").textContent = isk(sum("totalSpend"));
     $("dM3").textContent = intf(sum("totalM3")) + " m³";
     $("dProfit").textContent = isk(sum("totalProfit"));
