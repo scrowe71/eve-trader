@@ -50,7 +50,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 7, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
