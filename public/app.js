@@ -22,7 +22,7 @@
   const DEFAULTS = {
     acc: 5, br: 5, abr: 4, jFac: 0, jCorp: 0, hubFee: 1.0,
     haulRate: 800, coll: 1, buyHow: "instant", minRoi: 8, minPrice: 100000, maxRows: 100,
-    dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 10,
+    dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all",
   };
   const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow"]);
