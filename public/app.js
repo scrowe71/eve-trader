@@ -49,7 +49,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, lMaxDays: 7,
+    oAheadDays: 1, oMinGap: 1, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0,
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -1664,10 +1664,11 @@
   }
 
   // Walk buy orders (highest first) for qty units; returns { qty, isk }.
-  function walkBuys(orders, qty) {
+  // minPrice: stop at orders below this price (a better outlet exists below it).
+  function walkBuys(orders, qty, minPrice = 0) {
     let left = qty, isk = 0, sold = 0;
     for (const o of [...orders].sort((a, b) => b.price - a.price)) {
-      if (left <= 0) break;
+      if (left <= 0 || o.price < minPrice) break;
       const take = Math.min(left, o.volume_remain);
       isk += take * o.price; sold += take; left -= take;
     }
@@ -1729,31 +1730,41 @@
         // Only list if it beats dumping instantly.
         const hubDumpUnit = hubBuys.length ? Math.max(...hubBuys.map((o) => o.price)) * (1 - tax) : 0;
         const jitaDumpUnit = bestJitaBuy ? bestJitaBuy * (1 - tax) - k * (settings.haulRate * vol + (settings.coll / 100) * bestJitaBuy) : 0;
-        if (listNetUnit <= Math.max(hubDumpUnit, jitaDumpUnit)) listQty = 0;
+        // Your buyback contact: % of Jita best buy, minus their fee; contract, so no sales tax or hauling.
+        const bbUnit = settings.lBbPct > 0 && bestJitaBuy ? bestJitaBuy * settings.lBbPct / 100 * (1 - (settings.lBbFeePct || 0) / 100) : 0;
+        if (listNetUnit <= Math.max(hubDumpUnit, jitaDumpUnit, bbUnit)) listQty = 0;
 
-        // 2) Dump the rest: hub buy orders (instant) vs Jita buy orders (after a courier).
+        // 2) Dump the rest. Each route uses buy orders only while they beat the buyback, then the buyback takes the remainder.
         const rest = q - listQty;
-        const hubW = walkBuys(hubBuys, rest);
-        const jitaW = walkBuys(jitaBuys, rest);
+        const hubMin = bbUnit ? bbUnit / (1 - tax) : 0;
+        const hubW = walkBuys(hubBuys, rest, hubMin);
         const hubNet = hubW.isk * (1 - tax);
+        const haulPerUnit = (p) => k * (settings.haulRate * vol + (settings.coll / 100) * p);
+        const jitaMin = bbUnit ? (bbUnit + k * settings.haulRate * vol) / (1 - tax - k * settings.coll / 100) : 0;
+        const jitaW = walkBuys(jitaBuys, rest, jitaMin);
         const jitaHaul = k * (settings.haulRate * vol * jitaW.qty + (settings.coll / 100) * jitaW.isk);
         const jitaNet = jitaW.isk * (1 - tax) - jitaHaul;
-        // compare per unit sold (a route may not absorb everything)
-        const useJita = jitaW.qty > 0 && (hubW.qty === 0 || jitaNet / jitaW.qty > hubNet / hubW.qty * 1.0);
-        const dump = useJita
-          ? { route: "Jita buy orders", qty: jitaW.qty, net: jitaNet, avg: jitaW.qty ? jitaW.isk / jitaW.qty : 0, haul: jitaHaul, m3: vol * jitaW.qty }
-          : { route: "Hub buy orders", qty: hubW.qty, net: hubNet, avg: hubW.qty ? hubW.isk / hubW.qty : 0, haul: 0, m3: 0 };
-        const unsold = Math.max(0, rest - dump.qty);
+        const options = [
+          { route: "Hub buy orders", qty: hubW.qty, net: hubNet, avg: hubW.qty ? hubW.isk / hubW.qty : 0, m3: 0 },
+          { route: "Jita buy orders", qty: jitaW.qty, net: jitaNet, avg: jitaW.qty ? jitaW.isk / jitaW.qty : 0, m3: vol * jitaW.qty },
+        ].map((o) => {
+          const bbQty = bbUnit ? rest - o.qty : 0;
+          return { ...o, bbQty, bbNet: bbQty * bbUnit, total: o.net + bbQty * bbUnit };
+        });
+        if (bbUnit) options.push({ route: "Buyback", qty: 0, net: 0, avg: 0, m3: 0, bbQty: rest, bbNet: rest * bbUnit, total: rest * bbUnit });
+        const dump = options.sort((a, b) => b.total - a.total || a.m3 - b.m3)[0];
+        const unsold = Math.max(0, rest - dump.qty - dump.bbQty);
         const listNet = listQty * listNetUnit;
         const days = listQty && perDay > 0 ? (aheadUnits + listQty) / perDay : 0;
         let plan = [];
         if (listQty) plan.push(`List ${intf(listQty)} at the hub @ ${isk(listPrice)} (~${days.toFixed(1)} days)`);
         if (dump.qty) plan.push(`Sell ${intf(dump.qty)} into ${dump.route} @ ~${isk(dump.avg)} avg${dump.route.startsWith("Jita") ? " (haul to Jita first)" : " (instant)"}`);
+        if (dump.bbQty) plan.push(`Contract ${intf(dump.bbQty)} to your buyback @ ${isk(bbUnit)} each`);
         if (unsold) plan.push(`${intf(unsold)} left over: not enough buyers. List at the hub @ ${listPrice ? isk(listPrice) : "your price"} and be patient, or try another market.`);
         return {
           typeId: t, name: it.name, qty: q, perDay, lowest, sellers: sells.length,
           listQty, listPrice, listNet, days, dump, unsold,
-          net: listNet + dump.net, plan: plan.join(" · "),
+          net: listNet + dump.net + dump.bbNet, bbQty: dump.bbQty, bbNet: dump.bbNet, plan: plan.join(" · "),
         };
       });
       lRows.sort((a, b) => b.net - a.net);
@@ -1770,7 +1781,11 @@
 
   function drawLiquidate(unknown = []) {
     const sum = (f) => lRows.reduce((a, r) => a + f(r), 0);
-    $("lTotal").textContent = isk(sum((r) => r.net));
+    const bbTotal = sum((r) => r.bbNet || 0);
+    const bbFlat = bbTotal > 0 ? (settings.lBbFlat || 0) : 0;
+    $("lTotal").textContent = isk(sum((r) => r.net) - bbFlat);
+    $("lBb").textContent = isk(bbTotal - bbFlat);
+    $("lBbNote").textContent = bbTotal > 0 ? `${intf(sum((r) => r.bbQty || 0))} units` + (bbFlat ? ` · after ${isk(bbFlat)} flat fee` : "") : "not used";
     $("lHubList").textContent = isk(sum((r) => r.listNet));
     $("lHubDump").textContent = isk(sum((r) => (r.dump.route.startsWith("Hub") ? r.dump.net : 0)));
     $("lJita").textContent = isk(sum((r) => (r.dump.route.startsWith("Jita") ? r.dump.net : 0)));
@@ -1800,7 +1815,7 @@
         lp.appendChild(b);
       } else lp.textContent = "–";
       tr.appendChild(lp);
-      add(r.dump.qty ? `${intf(r.dump.qty)} → ${r.dump.route.startsWith("Jita") ? "Jita" : "hub"} buys` : "–");
+      add([r.dump.qty ? `${intf(r.dump.qty)} → ${r.dump.route.startsWith("Jita") ? "Jita" : "hub"} buys` : "", r.bbQty ? `${intf(r.bbQty)} → buyback` : ""].filter(Boolean).join(", ") || "–");
       const n = add(isk(r.net)); n.className = "pos";
       add(r.plan, "name note");
       frag.appendChild(tr);

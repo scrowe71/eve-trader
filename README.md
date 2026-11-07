@@ -117,6 +117,8 @@ Turn items you didn't buy in Jita into ISK quickly. Copy them from your EVE hang
 2. **Sell the rest instantly** into whichever pays more after fees: **buy orders at the Keepstar**, or **Jita 4-4 buy orders** after a courier. Hauling uses your hauling settings.
 3. Anything the buyers can't absorb is flagged as left over.
 
+**Buyback contact:** if you have someone who buys in bulk, set what they pay (% of the Jita buy price), their fee %, and any flat fee per contract. Buy orders are then used only while they pay more than the buyback, and the buyback takes the rest. There's no sales tax or hauling on it, because it's a contract.
+
 The totals show the ISK from each route and the m³ to haul to Jita.
 
 ## Order check

@@ -335,6 +335,12 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <div class="fields">
           <label>Only list at the hub what sells within (days)<input id="lMaxDays" type="number" min="0.5" step="0.5"></label>
         </div>
+        <h3>Your buyback contact</h3>
+        <div class="fields three">
+          <label>Pays % of Jita buy (0 = don't use)<input id="lBbPct" type="number" min="0" max="100" step="0.5"></label>
+          <label>Their fee %<input id="lBbFeePct" type="number" min="0" step="0.5"></label>
+          <label>Flat fee per contract (ISK)<input id="lBbFlat" type="number" min="0" step="1000000"></label>
+        </div>
         <div class="row"><button type="button" class="primary" id="lRun">Plan the sale</button></div>
       </section>
 
@@ -345,6 +351,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <div class="tile"><span class="k">From listing at the hub</span><span class="v" id="lHubList">–</span></div>
           <div class="tile"><span class="k">Instant: hub buy orders</span><span class="v" id="lHubDump">–</span></div>
           <div class="tile"><span class="k">Jita buy orders (after haul)</span><span class="v" id="lJita">–</span><span class="k" id="lJitaNote"></span></div>
+          <div class="tile"><span class="k">Buyback contract</span><span class="v" id="lBb">–</span><span class="k" id="lBbNote"></span></div>
         </div>
         <div class="tablewrap">
           <table>
@@ -353,7 +360,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           </table>
         </div>
         <p class="hint" id="lUnknown"></p>
-        <p class="hint">Instant sales pay sales tax only; listing also pays the hub broker fee. Buy orders with a minimum volume, or in other stations, aren't counted, so the real instant price can be a little different. Jita hauling uses your hauling settings (same rate as Jita → C-N4OD) with the item's value as collateral; check your hauler's price for the trip to Jita.</p>
+        <p class="hint">Buyback uses the best Jita 4-4 buy order as its price basis, with no sales tax or hauling (it's a contract). Buy orders are only used while they pay more than the buyback. Instant sales pay sales tax only; listing also pays the hub broker fee. Buy orders with a minimum volume, or in other stations, aren't counted, so the real instant price can be a little different. Jita hauling uses your hauling settings (same rate as Jita → C-N4OD) with the item's value as collateral; check your hauler's price for the trip to Jita.</p>
       </section>
 
       <section class="panel hidden" id="oPanel" aria-labelledby="hO">
