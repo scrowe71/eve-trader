@@ -33,9 +33,9 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    jPeriod: 14, jWhere: "hub", jCorp: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "",
+    jPeriod: 14, jWhere: "hub", jCorp: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
-  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorp", "jCorpChar", "jFrom"]);
+  const TEXT_SETTINGS = new Set(["buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorp", "jCorpChar", "jFrom", "jSource"]);
   const settings = Object.assign({}, DEFAULTS, store.get("settings", {}));
   let token = store.get("token", null);                 // the hub (primary) character
   const chars = store.get("chars", {});                 // every logged-in character, by id
@@ -966,12 +966,14 @@
       const uniq = txs.filter((t) => (seen.has(t.transaction_id) ? false : (seen.add(t.transaction_id), true)));
 
       const onlyHub = settings.jWhere === "hub" && hub;
+      const jitaOnly = settings.jSource === "jita";
       const byType = new Map();
       const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, soldQty: 0, revenue: 0, allSold: 0 }; byType.set(id, r); } return r; };
       for (const t of uniq) {
         if (from && Date.parse(t.date) < from) continue;
         const r = get(t.type_id);
         if (t.is_buy) {
+          if (jitaOnly && t.location_id !== JITA_STATION) continue;   // only Jita 4-4 purchases count as imports
           if (onlyHub && t.location_id === hub.id) continue;   // buying at the hub isn't an import
           r.buyQty += t.quantity; r.buyIsk += t.quantity * t.unit_price;
         } else {
@@ -1004,7 +1006,8 @@
         r.left = Math.max(0, r.buyQty - r.allSold);
         r.leftIsk = r.avgBuy !== null ? r.left * (r.avgBuy + r.haulUnit) : 0;
       });
-      jRows = rows.filter((r) => r.soldQty > 0 || r.left > 0);
+      // Jita-only: keep just the items you actually bought in Jita 4-4.
+      jRows = rows.filter((r) => (r.soldQty > 0 || r.left > 0) && (!jitaOnly || r.buyQty > 0));
 
       // Fees actually charged in the period (wallet journal).
       const inP = journal.filter((e) => Date.parse(e.date) >= since);
