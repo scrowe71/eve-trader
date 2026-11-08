@@ -22,6 +22,15 @@ export async function onRequest({ request, env }) {
     let body;
     try { body = JSON.parse(text); } catch { return json({ error: "Bad JSON." }, 400); }
     const updated = new Date().toISOString();
+    // A device that hasn't picked a hub (or loaded a doctrine list) must not wipe the ones already saved.
+    const data = body.data || {};
+    const old = await env.DB.prepare("SELECT data FROM settings WHERE char = ?").bind(w.charId).first();
+    if (old) {
+      let prev = {};
+      try { prev = JSON.parse(old.data) || {}; } catch {}
+      for (const k of ["hub", "doctrineCsv", "doctrineSrc", "docUrl"]) if (!data[k] && prev[k]) data[k] = prev[k];
+    }
+    body.data = data;
     await env.DB.prepare("INSERT INTO settings (char, data, updated) VALUES (?,?,?) ON CONFLICT(char) DO UPDATE SET data = excluded.data, updated = excluded.updated")
       .bind(w.charId, JSON.stringify(body.data || {}), updated).run();
     return json({ ok: true, updated });

@@ -63,7 +63,9 @@ export async function loadContext(env, w, access, info, corpId) {
   const row = await env.DB.prepare("SELECT data FROM settings WHERE char = ?").bind(w.charId).first();
   const data = row ? JSON.parse(row.data) : {};
   const s = Object.assign({ acc: 5, abr: 4, hubFee: 2, haulRate: 800, coll: 1, haulDisc: 0, dMinRoi: 20, oAheadDays: 1, oMinGap: 1, oAlert: "on" }, data.settings || {});
-  const hub = data.hub;
+  // Fall back to the last hub seen, so a settings mix-up doesn't stop alerts and the summary.
+  const hub = data.hub || w.lastHub || null;
+  if (data.hub) w.lastHub = data.hub;
   const tracker = parseDoctrine(data.doctrineCsv || "");
   const tax = 0.075 * (1 - 0.11 * Math.min(5, s.acc));
   const bf = (s.hubFee || 0) / 100;

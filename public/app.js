@@ -1263,6 +1263,7 @@
       const j = await r.json();
       const local = store.get("settingsUpdated", "");
       if (!j.data) { pushSettings(); return false; }          // first time: upload this device's settings
+      if (hub && !(j.data && j.data.hub)) pushSettings();      // the cloud lost the hub: put this device's back
       if (local && j.updated <= local) return false;           // this device is newer or the same
       Object.assign(settings, j.data.settings || {});
       store.set("settings", settings);
