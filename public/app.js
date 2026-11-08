@@ -214,9 +214,17 @@
     const c = charId ? chars[charId] : token;
     if (!c) throw new Error("You're not logged in.");
     if (Date.now() < c.exp - 60000) return c.access;
-    const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: c.refresh, client_id: CFG.CLIENT_ID });
-    return saveToken(t, token && token.charId === c.charId ? "primary" : "journal").access;
+    // One refresh at a time per character. EVE hands out a new refresh token each time, so several
+    // refreshes racing each other (many requests at once after the page sat idle) could leave a used-up one saved.
+    const key = c.charId;
+    if (!refreshing[key]) {
+      refreshing[key] = tokenRequest({ grant_type: "refresh_token", refresh_token: c.refresh, client_id: CFG.CLIENT_ID })
+        .then((t) => saveToken(t, token && token.charId === c.charId ? "primary" : "journal").access)
+        .finally(() => { delete refreshing[key]; });
+    }
+    return refreshing[key];
   }
+  const refreshing = {};
 
   function logout() {
     token = null;
