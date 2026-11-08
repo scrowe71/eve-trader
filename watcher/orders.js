@@ -92,15 +92,19 @@ export async function loadContext(env, w, access, info, corpId) {
   return { env, s, hub, tracker, tax, bf, keep, k, txs, taxRows, book, myOrders, marketNote };
 }
 
-// Per item cost from Jita purchases (+ hauling) and sales at the hub.
+// Per item cost from purchases away from the hub (+ hauling on the Jita share) and sales at the hub.
 export async function itemCosts(ctx) {
   const { txs, hub, s, k, keep, tax } = ctx;
   const taxBySale = new Map(ctx.taxRows.map((t) => [t.context_id, -(t.amount || 0)]));
   const items = new Map();
-  const get = (id) => { let r = items.get(id); if (!r) { r = { id, bq: 0, bisk: 0, sold: 0, q24: 0, r24: 0, t24: 0 }; items.set(id, r); } return r; };
+  const get = (id) => { let r = items.get(id); if (!r) { r = { id, bq: 0, bisk: 0, jq: 0, jisk: 0, sold: 0, q24: 0, r24: 0, t24: 0 }; items.set(id, r); } return r; };
   const since24 = Date.now() - DAY;
   for (const t of txs) {
-    if (t.is_buy && t.location_id === JITA) { const r = get(t.type_id); r.bq += t.quantity; r.bisk += t.quantity * t.unit_price; }
+    // Imports: anything bought away from the hub. Courier cost is only added for the Jita share.
+    if (t.is_buy && !(hub && t.location_id === hub.id)) {
+      const r = get(t.type_id); r.bq += t.quantity; r.bisk += t.quantity * t.unit_price;
+      if (t.location_id === JITA) { r.jq += t.quantity; r.jisk += t.quantity * t.unit_price; }
+    }
     else if (hub && !t.is_buy && t.location_id === hub.id) {
       const r = get(t.type_id); r.sold += t.quantity;
       if (Date.parse(t.date) >= since24) { r.q24 += t.quantity; r.r24 += t.quantity * t.unit_price; r.t24 += taxBySale.get(t.transaction_id) ?? t.quantity * t.unit_price * tax; }
@@ -111,7 +115,7 @@ export async function itemCosts(ctx) {
   mine.forEach((r) => {
     r.sized = vol.has(r.id);
     r.avg = r.bisk / r.bq;
-    r.cost = r.avg + k * (s.haulRate * (vol.get(r.id) || 0) + (s.coll / 100) * r.avg);
+    r.cost = r.avg + (r.jq ? (r.jq / r.bq) * k * (s.haulRate * (vol.get(r.id) || 0) + (s.coll / 100) * (r.jisk / r.jq)) : 0);
     r.left = Math.max(0, r.bq - r.sold);
     r.min = r.cost * (1 + s.dMinRoi / 100) / keep;
   });

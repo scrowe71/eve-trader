@@ -534,7 +534,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           </label>
           <label>Period (days)<input id="jPeriod" type="number" min="1" max="30" step="1"></label>
           <label>Items to show
-            <select id="jSource"><option value="jita">Only items bought in Jita 4-4</option><option value="any">Everything traded</option></select>
+            <select id="jSource"><option value="jita">Only imports (bought anywhere but the hub)</option><option value="any">Everything traded</option></select>
           </label>
           <label>Count sales
             <select id="jWhere"><option value="hub">At the hub only</option><option value="all">Everywhere</option></select>
@@ -598,7 +598,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <div class="tile"><span class="k">Unsold stock (at cost)</span><span class="v" id="jLeft">–</span></div>
         </div>
         <p class="callout-line" id="jFeeNote"></p>
-        <p class="hint">Per-item profit uses your average Jita buy price (up to 90 days of purchases), estimated hauling, and the sales tax and hub broker fee rates from the left panel. With "Only items bought in Jita 4-4", the tiles count sales tax only on those items (matched to each sale) and estimate broker fees from your hub fee rate, because broker fees are charged per order and can't be tied to an item; the line above shows everything the wallets were charged. With "Everything traded", the tiles use the wallets' actual totals. "You sold / day" is your pace; "Hub sold / day" is the doctrine tracker's, if loaded. Hover "Left" to see how long the rest will take to sell.</p>
+        <p class="hint">Per-item profit uses your average buy price away from the hub (Jita, or bargains elsewhere in Fountain), estimated courier cost on the Jita share, and the sales tax and hub broker fee rates from the left panel. With "Only imports", the tiles count sales tax only on those items (matched to each sale) and estimate broker fees from your hub fee rate, because broker fees are charged per order and can't be tied to an item; the line above shows everything the wallets were charged. With "Everything traded", the tiles use the wallets' actual totals. "You sold / day" is your pace; "Hub sold / day" is the doctrine tracker's, if loaded. Hover "Left" to see how long the rest will take to sell.</p>
         <div class="tablewrap">
           <table>
             <thead><tr id="jThead"></tr></thead>
@@ -632,8 +632,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.24.2"></script>
-<script src="config.js?v=2.24.2"></script>
-<script src="app.js?v=2.24.2"></script>
+<script src="version.js?v=2.25.0"></script>
+<script src="config.js?v=2.25.0"></script>
+<script src="app.js?v=2.25.0"></script>
 </body>
 </html>

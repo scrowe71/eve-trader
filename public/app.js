@@ -1790,14 +1790,15 @@
       const day24 = Date.now() - 86400000;
       const jitaOnly = settings.jSource === "jita";
       const byType = new Map();
-      const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, soldQty: 0, revenue: 0, allSold: 0, qty24: 0, rev24: 0, ids24: [] }; byType.set(id, r); } return r; };
+      const get = (id) => { let r = byType.get(id); if (!r) { r = { typeId: id, buyQty: 0, buyIsk: 0, jitaQty: 0, jitaIsk: 0, soldQty: 0, revenue: 0, allSold: 0, qty24: 0, rev24: 0, ids24: [] }; byType.set(id, r); } return r; };
       for (const t of uniq) {
         if (Date.parse(t.date) < from) continue;
         const r = get(t.type_id);
         if (t.is_buy) {
-          if (jitaOnly && t.location_id !== JITA_STATION) continue;   // only Jita 4-4 purchases count as imports
-          if (onlyHub && t.location_id === hub.id) continue;   // buying at the hub isn't an import
+          // Imports: anything bought away from the hub (Jita, or a bargain elsewhere in Fountain).
+          if ((jitaOnly || onlyHub) && hub && t.location_id === hub.id) continue;
           r.buyQty += t.quantity; r.buyIsk += t.quantity * t.unit_price;
+          if (t.location_id === JITA_STATION) { r.jitaQty += t.quantity; r.jitaIsk += t.quantity * t.unit_price; }
         } else {
           if (onlyHub && t.location_id !== hub.id) continue;
           r.allSold += t.quantity;
@@ -1820,7 +1821,8 @@
         r.name = nameCache[r.typeId] || "Type " + r.typeId;
         r.avgBuy = r.buyQty ? r.buyIsk / r.buyQty : null;
         r.avgSell = r.soldQty ? r.revenue / r.soldQty : null;
-        r.haulUnit = r.avgBuy !== null ? haulCost(volCache[r.typeId] || 0, r.avgBuy) : 0;
+        // Courier cost only applies to the share bought in Jita; items picked up elsewhere you moved yourself.
+        r.haulUnit = r.jitaQty ? (r.jitaQty / r.buyQty) * haulCost(volCache[r.typeId] || 0, r.jitaIsk / r.jitaQty) : 0;
         r.cogs = r.avgBuy !== null ? r.soldQty * (r.avgBuy + r.haulUnit) : null;
         r.fees = r.revenue * (tax + bfH);
         r.profit = r.cogs !== null ? r.revenue - r.fees - r.cogs : null;
@@ -1832,7 +1834,7 @@
         r.left = Math.max(0, r.buyQty - r.allSold);
         r.leftIsk = r.avgBuy !== null ? r.left * (r.avgBuy + r.haulUnit) : 0;
       });
-      // Jita-only: keep just the items you actually bought in Jita 4-4.
+      // Imports only: keep just the items you actually bought away from the hub.
       jRows = rows.filter((r) => (r.soldQty > 0 || r.left > 0) && (!jitaOnly || r.buyQty > 0));
 
       // Fees actually charged in the period (wallet journal).
@@ -1965,7 +1967,7 @@
       status("Reading your wallets to see what you still hold…", "busy");
       await runJournal({ show: false });
       const held = jRows.filter((r) => r.left > 0 && r.avgBuy !== null);
-      if (!held.length) { status("Nothing bought in Jita is waiting to be sold (since the project start / your journal date).", "ok"); sRows = []; drawSell(); return; }
+      if (!held.length) { status("Nothing you imported is waiting to be sold (since the project start / your journal date).", "ok"); sRows = []; drawSell(); return; }
 
       const agg = await loadHubAgg();
       const tax = salesTax(), bfH = hubBroker(), keep = 1 - tax - bfH;
@@ -2325,11 +2327,17 @@
       await runJournal({ show: false });
       const [a, b] = reportRange();
       const tx = jRaw.tx;
-      // Cost per unit: average Jita 4-4 purchase price since the project start, plus estimated hauling.
+      // Cost per unit: average purchase price away from the hub since the project start, plus courier cost on the Jita share.
       const buy = new Map();
-      tx.forEach((t) => { if (t.is_buy && t.location_id === JITA_STATION && Date.parse(t.date) >= PROJECT_START) { const x = buy.get(t.type_id) || { q: 0, isk: 0 }; x.q += t.quantity; x.isk += t.quantity * t.unit_price; buy.set(t.type_id, x); } });
+      tx.forEach((t) => {
+        if (!t.is_buy || (hub && t.location_id === hub.id) || Date.parse(t.date) < PROJECT_START) return;
+        const x = buy.get(t.type_id) || { q: 0, isk: 0, jq: 0, jisk: 0 };
+        x.q += t.quantity; x.isk += t.quantity * t.unit_price;
+        if (t.location_id === JITA_STATION) { x.jq += t.quantity; x.jisk += t.quantity * t.unit_price; }
+        buy.set(t.type_id, x);
+      });
       await volumes([...buy.keys()]);
-      const costOf = new Map([...buy.entries()].map(([id, x]) => { const avg = x.isk / x.q; return [id, avg + haulCost(volCache[id] || 0, avg)]; }));
+      const costOf = new Map([...buy.entries()].map(([id, x]) => [id, x.isk / x.q + (x.jq ? (x.jq / x.q) * haulCost(volCache[id] || 0, x.jisk / x.jq) : 0)]));
       const seenJ = new Set();
       const jr = jRaw.journal.filter((e) => (seenJ.has(e.id) ? false : (seenJ.add(e.id), true)));
       const taxBySale = new Map(jr.filter((e) => e.ref_type === "transaction_tax" && e.context_id).map((e) => [e.context_id, -(e.amount || 0)]));

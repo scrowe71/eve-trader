@@ -122,7 +122,7 @@ The order-slot skills (Trade, Retail, Wholesale, Tycoon), Accounting, Broker Rel
 
 ## Sell prices
 
-When a haul lands, open the **Sell prices** tab and click **Price my stock**. It uses the wallets set up on the Trade journal tab to find what you bought in Jita and haven't sold yet, then shows for each item:
+When a haul lands, open the **Sell prices** tab and click **Price my stock**. It uses the wallets set up on the Trade journal tab to find what you imported (bought anywhere but the hub) and haven't sold yet, then shows for each item:
 
 - **Your cost:** average Jita price plus hauling.
 - **Break-even:** the lowest price that doesn't lose money after sales tax and the hub broker fee.
@@ -221,7 +221,7 @@ A small Cloudflare Worker (`watcher/`) checks your courier contracts every 10 mi
 Every day at 8:00 AM Eastern, the watcher posts a summary to the alerts channel:
 
 - **Last 24 hours:** profit on your import sales, after Jita cost, hauling, the actual sales tax and the hub broker fee, plus your top items.
-- **Restock soon:** imported items that are sold out or have under 3 days of stock left. Stock means bought in Jita minus sold at the hub. Days come from the doctrine tracker or regional history. It also notes items with no other sellers.
+- **Restock soon:** imported items that are sold out or have under 3 days of stock left. Stock means bought away from the hub minus sold at the hub. Days come from the doctrine tracker or regional history. It also notes items with no other sellers.
 - **Orders worth updating:** the same rules as the Order check tab.
 
 It uses the settings, hub and tracker you saved on the site, plus the cloud history. The alert login asks for market access (`esi-markets.structure_markets.v1`, `esi-markets.read_corporation_orders.v1`, `esi-markets.read_character_orders.v1`), so **turn alerts on again once** after updating. To get a summary right away, open `https://eve-trader-watcher.<subdomain>.workers.dev/?summary=1`.
@@ -273,3 +273,7 @@ The free Workers plan allows 50 outside requests per run, so the watcher counts 
 One item, Jita → hub, with every cost: the Jita price for your quantity (walking the real 4-4 sell orders, or one tick over the top bid for a buy order), hauling, collateral, express (whole fee, this item's share of a full JF load, or none), hub listing fee, sales tax and expected price updates. Shows profit, return, break-even hub price, the hub price for your minimum return, the most to pay in Jita, both markets side by side, and how many days it should take to sell. Hover a cost to see how it's worked out.
 
 ISK amount boxes accept shorthand: `30m`, `1.5b`, `500k`, or a plain number (commas are fine).
+
+### What counts as an import
+
+Anything bought away from the hub: Jita 4-4, or a bargain you picked up elsewhere in Fountain. Its cost is the average purchase price, plus courier cost (hauling and collateral) only on the share bought in Jita. Purchases elsewhere are assumed to be moved yourself. Buying at the hub never counts as an import.
