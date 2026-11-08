@@ -189,7 +189,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>ISK per m³<input id="haulRate" type="number" step="50" min="0"></label>
           <label>Collateral %<input id="coll" type="number" step="0.1" min="0"></label>
           <label class="full">Your discount % (off the whole hauling charge)<input id="haulDisc" type="number" step="1" min="0" max="100"></label>
-          <label class="full">Express fee per contract (ISK, 0 if you don't use it)<input id="haulExpress" type="number" step="1000000" min="0"></label>
+          <label class="full">Express fee per contract (ISK, 0 if you don't use it)<input id="haulExpress" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
         </div>
         <h3>Filters</h3>
         <div class="fields">
@@ -197,7 +197,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
             <select id="buyHow"><option value="instant">Buy now (Jita lowest sell)</option><option value="order">Buy order (Jita highest buy)</option></select>
           </label>
           <label>Minimum return %<input id="minRoi" type="number" step="1"></label>
-          <label>Minimum Jita price<input id="minPrice" type="number" step="10000" min="0"></label>
+          <label>Minimum Jita price<input id="minPrice" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
           <label class="full">Rows to show<input id="maxRows" type="number" min="10" max="500" step="10"></label>
         </div>
         <p class="hint" id="feeLine"></p>
@@ -258,12 +258,12 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           </label>
           <label>Sold-out markup % of Jita<input id="dMarkup" type="number" min="100" step="5"></label>
           <label>Minimum return %<input id="dMinRoi" type="number" step="1"></label>
-          <label>Max ISK per item<input id="dItemCap" type="number" step="10000000" min="0"></label>
+          <label>Max ISK per item<input id="dItemCap" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
           <label>Budget
             <select id="dBudgetMode"><option value="wallet">Trading wallet balance</option><option value="fixed">Fixed amount (below)</option></select>
           </label>
           <label>Keep in reserve % (for listing fees)<input id="dReserve" type="number" step="1" min="0" max="50"></label>
-          <label>Fixed budget<input id="dBudget" type="number" step="100000000" min="0"></label>
+          <label>Fixed budget<input id="dBudget" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
           <label>Multibuy allowance %<input id="dTol" type="number" step="0.5" min="0"></label>
           <label>Jita spike limit % over 30-day avg (0 = off)<input id="dSpike" type="number" step="1" min="0"></label>
           <label>Items over the spike limit
@@ -281,8 +281,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Keep the minimum return even at "Pay at most"
             <select id="dCushion"><option value="on">Yes</option><option value="off">No</option></select>
           </label>
-          <label>Max ISK in items the buyback won't take (0 = no limit)<input id="dNoBbCap" type="number" min="0" step="50000000"></label>
-          <label>Minimum profit per item (total)<input id="dMinProfit" type="number" step="500000" min="0"></label>
+          <label>Max ISK in items the buyback won't take (0 = no limit)<input id="dNoBbCap" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
+          <label>Minimum profit per item (total)<input id="dMinProfit" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
           <label>Max cargo m³ (0 = no limit)<input id="dCargo" type="number" step="10000" min="0"></label>
           <label>Fill slots with
             <select id="dPriority"><option value="soldout">Sold-out items first</option><option value="restock">Restock what sold since last haul</option><option value="profit">Most profit first</option></select>
@@ -364,7 +364,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label class="full" style="grid-column:1/span 2">Item name (exact, as in game)<input id="iName" type="text" list="iNames" autocomplete="off" placeholder="Guardian"><span class="k" id="iHint" style="font-size:12px;color:var(--muted)"></span></label>
           <datalist id="iNames"></datalist>
           <label>Quantity<input id="iQty" type="number" min="1" step="1" value="1"></label>
-          <label>Sell price at the hub (blank = undercut the lowest)<input id="iSell" type="number" min="0" step="any" placeholder="auto"></label>
+          <label>Sell price at the hub (blank = undercut the lowest)<input id="iSell" type="text" inputmode="decimal" data-isk="1" placeholder="auto"></label>
           <label>Buy in Jita by
             <select id="iBuyHow"><option value="instant">Buying now (sell orders)</option><option value="order">Buy order (top bid)</option></select>
           </label>
@@ -458,8 +458,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <div class="fields three">
           <label>Pays % of Jita buy (0 = don't use)<input id="lBbPct" type="number" min="0" max="100" step="0.5"></label>
           <label>Their fee %<input id="lBbFeePct" type="number" min="0" step="0.5"></label>
-          <label>Flat fee per contract (ISK)<input id="lBbFlat" type="number" min="0" step="1000000"></label>
-          <label class="full">Send the whole stack to the buyback if it's worth less than (ISK, at Jita buy)<input id="lBbUnder" type="number" min="0" step="5000000"></label>
+          <label>Flat fee per contract (ISK)<input id="lBbFlat" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
+          <label class="full">Send the whole stack to the buyback if it's worth less than (ISK, at Jita buy)<input id="lBbUnder" type="text" inputmode="decimal" data-isk="1" placeholder="e.g. 30m"></label>
           <label class="full">Buyback won't take these item groups (comma-separated, matches the group name)<input id="lBbExclude" type="text"></label>
         </div>
         <div class="row"><button type="button" class="primary" id="lRun">Plan the sale</button></div>
@@ -632,8 +632,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.23.1"></script>
-<script src="config.js?v=2.23.1"></script>
-<script src="app.js?v=2.23.1"></script>
+<script src="version.js?v=2.24.0"></script>
+<script src="config.js?v=2.24.0"></script>
+<script src="app.js?v=2.24.0"></script>
 </body>
 </html>

@@ -271,3 +271,5 @@ The free Workers plan allows 50 outside requests per run, so the watcher counts 
 ### Item check
 
 One item, Jita → hub, with every cost: the Jita price for your quantity (walking the real 4-4 sell orders, or one tick over the top bid for a buy order), hauling, collateral, express (whole fee, this item's share of a full JF load, or none), hub listing fee, sales tax and expected price updates. Shows profit, return, break-even hub price, the hub price for your minimum return, the most to pay in Jita, both markets side by side, and how many days it should take to sell. Hover a cost to see how it's worked out.
+
+ISK amount boxes accept shorthand: `30m`, `1.5b`, `500k`, or a plain number (commas are fine).

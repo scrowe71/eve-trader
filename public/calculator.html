@@ -148,7 +148,7 @@ footer a { color: var(--accent); }
           <span>Open orders allowed</span><span id="dSlots">–</span>
           <span>ISK per slot (of your stack)</span><span id="dPerSlot">–</span>
         </div>
-        <label>Trading capital (ISK)<input id="capital" type="number" step="1000000" value="10000000000"></label>
+        <label>Trading capital (ISK)<input id="capital" type="text" inputmode="decimal" value="10000000000"></label>
       </section>
     </div>
 
@@ -166,8 +166,8 @@ footer a { color: var(--accent); }
           <label class="full">Item (your label)<input id="item" type="text" value="Example: doctrine module"></label>
           <label>Quantity<input id="qty" type="number" min="1" value="20"></label>
           <label>Volume per unit (m³)<input id="vol" type="number" step="0.01" min="0" value="10"></label>
-          <label>Buy price each<input id="buyP" type="number" step="1000" value="9500000"></label>
-          <label>Sell price each<input id="sellP" type="number" step="1000" value="12000000"></label>
+          <label>Buy price each<input id="buyP" type="text" inputmode="decimal" value="9500000"></label>
+          <label>Sell price each<input id="sellP" type="text" inputmode="decimal" value="12000000"></label>
         </div>
 
         <h3>Buying</h3>
@@ -184,7 +184,7 @@ footer a { color: var(--accent); }
           <div class="fields three">
             <label>Rate (ISK per m³)<input id="hRate" type="number" step="50" min="0" value="800"></label>
             <label>Collateral fee %<input id="hColl" type="number" step="0.1" min="0" value="1"></label>
-            <label>Flat fee per contract<input id="hFlat" type="number" step="100000" min="0" value="0"></label>
+            <label>Flat fee per contract<input id="hFlat" type="text" inputmode="decimal" value="0"></label>
             <label>Your discount %<input id="hDisc" type="number" step="1" min="0" max="100" value="0"></label>
           </div>
         </div>
@@ -225,8 +225,8 @@ footer a { color: var(--accent); }
             <select id="rSide"><option value="sell">Sell order</option><option value="buy">Buy order</option></select>
           </label>
           <label>Units left<input id="rQty" type="number" min="1" value="20"></label>
-          <label>Current price<input id="rOld" type="number" step="1000" value="12000000"></label>
-          <label>New price<input id="rNew" type="number" step="1000" value="11990000"></label>
+          <label>Current price<input id="rOld" type="text" inputmode="decimal" value="12000000"></label>
+          <label>New price<input id="rNew" type="text" inputmode="decimal" value="11990000"></label>
         </div>
         <div class="relist-out" id="relistOut"></div>
       </section>
@@ -239,12 +239,17 @@ footer a { color: var(--accent); }
   </footer>
 </div>
 
-<script src="version.js?v=2.23.1"></script>
+<script src="version.js?v=2.24.0"></script>
 <script>
 (function () {
   try { const V = window.APP_VERSION; if (V) document.getElementById("ver").textContent = `EveTrader Profit Calculator v${V.number} · ${V.date}`; } catch (e) {}
   const $ = id => document.getElementById(id);
-  const num = id => { const v = parseFloat($(id).value); return isFinite(v) ? v : 0; };
+  // Amounts take 30m, 1.5b, 500k or plain numbers.
+  const num = id => {
+    const m = String($(id).value).trim().toLowerCase().replace(/[,\s_]/g, "").match(/^(-?\d*\.?\d+)(k|m|b|t)?$/);
+    const v = m ? parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[m[2]] || 1) : NaN;
+    return isFinite(v) ? v : 0;
+  };
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   let mode = "import";
 

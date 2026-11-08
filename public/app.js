@@ -76,6 +76,21 @@
     if (a >= 1e3) return s + (a / 1e3).toFixed(1) + "k";
     return s + a.toFixed(2);
   }
+  // ISK boxes take 30m, 1.5b, 500k, 25,000,000 …
+  function parseIsk(v) {
+    const m = String(v == null ? "" : v).trim().toLowerCase().replace(/[,\s_]/g, "").match(/^(-?\d*\.?\d+)(k|m|b|t)?$/);
+    if (!m) return NaN;
+    return parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[m[2]] || 1);
+  }
+  function iskInput(v) {
+    if (!isFinite(v) || v === 0) return String(v || 0);
+    const tidy = (x) => String(+x.toFixed(3));
+    if (Math.abs(v) >= 1e9) return tidy(v / 1e9) + "b";
+    if (Math.abs(v) >= 1e6) return tidy(v / 1e6) + "m";
+    return String(v);
+  }
+  const isIskBox = (el) => el && el.dataset && el.dataset.isk === "1";
+  const showSetting = (k) => { const el = $(k); if (el) el.value = isIskBox(el) ? iskInput(settings[k]) : settings[k]; };
   const pct = (v) => (isFinite(v) ? (v * 100).toFixed(1) + "%" : "–");
   const intf = (v) => (isFinite(v) ? Math.round(v).toLocaleString("en-US") : "–");
 
@@ -527,7 +542,7 @@
         try { open = (await esi(`/characters/${c.charId}/orders/`, { auth: true, charId: c.charId })).data.length; } catch {}
       }
       settings.openOrders = open;
-      SETTING_IDS.forEach((k) => { const el = $(k); if (el) el.value = settings[k]; });
+      SETTING_IDS.forEach(showSetting);
       store.set("settings", settings);
       markSettingsChanged();
       feeLine();
@@ -1258,7 +1273,7 @@
       }
       if (j.data.docUrl) store.set("docUrl", j.data.docUrl);
       store.set("settingsUpdated", j.updated);
-      SETTING_IDS.forEach((k) => { const el = $(k); if (el) el.value = settings[k]; });
+      SETTING_IDS.forEach(showSetting);
       feeLine();
       restoreDoctrine();
       return true;
@@ -1509,7 +1524,7 @@
       const units = got;
 
       // Hub sell price.
-      const typed = parseFloat($("iSell").value);
+      const typed = parseIsk($("iSell").value);
       let sell, sellNote;
       if (typed > 0) { sell = typed; sellNote = "Your price."; }
       else if (hubLow) { sell = floorTick(hubLow - tick(hubLow) * 0.5); sellNote = `One tick under the lowest hub listing (${isk(hubLow)}).`; }
@@ -2121,7 +2136,7 @@
       b.type = "button"; b.className = "primary"; b.textContent = f.label;
       b.addEventListener("click", () => {
         f.apply();
-        SETTING_IDS.forEach((k) => { const el = $(k); if (el) el.value = settings[k]; });
+        SETTING_IDS.forEach(showSetting);
         store.set("settings", settings);
         markSettingsChanged();
         feeLine();
@@ -2934,9 +2949,14 @@
   function bindSettings() {
     SETTING_IDS.forEach((k) => {
       const el = $(k);
-      el.value = settings[k];
+      showSetting(k);
       el.addEventListener("change", () => {
-        settings[k] = TEXT_SETTINGS.has(k) ? el.value : (parseFloat(el.value) || 0);
+        if (isIskBox(el)) {
+          const v = parseIsk(el.value);
+          if (!isFinite(v)) { status(`"${el.value}" isn't an amount. Use a number like 30000000, 30m or 1.5b.`, "err"); showSetting(k); return; }
+          settings[k] = v;
+          showSetting(k);
+        } else settings[k] = TEXT_SETTINGS.has(k) ? el.value : (parseFloat(el.value) || 0);
         store.set("settings", settings);
         markSettingsChanged();
         feeLine();
