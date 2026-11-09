@@ -1216,6 +1216,7 @@
     $("tabWallet").setAttribute("aria-pressed", String(wl));
     $("wPanel").classList.toggle("hidden", !wl);
     $("wResults").classList.toggle("hidden", !wl || !wData);
+    if (wl) fillWalletChoices();
     const rp = which === "rep";
     $("tabRep").setAttribute("aria-pressed", String(rp));
     $("rPanel").classList.toggle("hidden", !rp);
@@ -3176,7 +3177,7 @@
     $("tabLiq").addEventListener("click", () => setTab("liq"));
     $("tabRep").addEventListener("click", () => setTab("rep"));
     $("tabItem").addEventListener("click", () => { setTab("item"); fillItemNames(); });
-    $("tabWallet").addEventListener("click", () => { setTab("wallet"); fillWalletChoices(); });
+    $("tabWallet").addEventListener("click", () => setTab("wallet"));
     $("wRun").addEventListener("click", runWallet);
     $("wWhich").addEventListener("change", runWallet);
     $("wDays").addEventListener("change", () => { if (wData) drawWallet(); });
