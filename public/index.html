@@ -233,6 +233,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <button type="button" id="tabLiq" aria-pressed="false">Liquidate</button>
         <button type="button" id="tabJournal" aria-pressed="false">Trade journal</button>
         <button type="button" id="tabRep" aria-pressed="false">Reports</button>
+        <button type="button" id="tabWallet" aria-pressed="false">Wallet</button>
       </div>
 
       <section class="panel" id="docPanel" aria-labelledby="hDoc">
@@ -514,6 +515,45 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <p class="hint">Update fee = (1 − (50% + 6% × Advanced Broker Relations)) × hub broker fee × new order value. "Your min" comes from your Jita cost in the journal and your minimum return; it's blank if the item's purchase isn't in the wallet history. Days of sales use the doctrine tracker if loaded, otherwise regional history.</p>
       </section>
 
+      <section class="panel hidden" id="wPanel" aria-labelledby="hW">
+        <h2 id="hW">Wallet</h2>
+        <p class="hint">Your wallet journal and market transactions, straight from the game. CCP keeps 30 days of journal and updates it for apps about once an hour.</p>
+        <div class="fields four">
+          <label>Wallet<select id="wWhich"></select></label>
+          <label>Period
+            <select id="wDays"><option value="1">Last 24 hours</option><option value="3">Last 3 days</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select>
+          </label>
+          <label>Show
+            <select id="wKind">
+              <option value="all">Everything</option>
+              <option value="sale">Sales</option>
+              <option value="buy">Purchases</option>
+              <option value="fees">Taxes and fees</option>
+              <option value="move">Transfers, donations, contracts</option>
+              <option value="other">Everything else</option>
+            </select>
+          </label>
+          <label>Search (item, person, description)<input id="wSearch" type="text" autocomplete="off"></label>
+        </div>
+        <div class="row"><button type="button" class="primary" id="wRun">Load wallet</button></div>
+      </section>
+
+      <section class="panel hidden" id="wResults" aria-labelledby="hWRes">
+        <h2 id="hWRes"><span id="wTitle">Wallet</span></h2>
+        <div class="summary">
+          <div class="tile"><span class="k">Balance now</span><span class="v" id="wBal">–</span><span class="k" id="wBalNote"></span></div>
+          <div class="tile"><span class="k">Money in</span><span class="v pos" id="wIn">–</span><span class="k" id="wInNote"></span></div>
+          <div class="tile"><span class="k">Money out</span><span class="v neg" id="wOut">–</span><span class="k" id="wOutNote"></span></div>
+          <div class="tile"><span class="k">Net change</span><span class="v" id="wNet">–</span><span class="k" id="wNetNote"></span></div>
+        </div>
+        <p class="hint" id="wBreak"></p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Date</th><th class="name">Type</th><th class="name">Details</th><th>Amount</th><th>Balance</th></tr></thead>
+          <tbody id="wBody"></tbody>
+        </table></div>
+        <p class="hint" id="wFoot"></p>
+      </section>
+
       <section class="panel hidden" id="jPanel" aria-labelledby="hJ">
         <h2 id="hJ">Trade journal</h2>
         <div id="divBanner" class="banner hidden" role="alert"></div>
@@ -632,8 +672,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.25.0"></script>
-<script src="config.js?v=2.25.0"></script>
-<script src="app.js?v=2.25.0"></script>
+<script src="version.js?v=2.26.0"></script>
+<script src="config.js?v=2.26.0"></script>
+<script src="app.js?v=2.26.0"></script>
 </body>
 </html>

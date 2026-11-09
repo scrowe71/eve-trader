@@ -277,3 +277,7 @@ ISK amount boxes accept shorthand: `30m`, `1.5b`, `500k`, or a plain number (com
 ### What counts as an import
 
 Anything bought away from the hub: Jita 4-4, or a bargain you picked up elsewhere in Fountain. Its cost is the average purchase price, plus courier cost (hauling and collateral) only on the share bought in Jita. Purchases elsewhere are assumed to be moved yourself. Buying at the hub never counts as an import.
+
+### Wallet
+
+Review a wallet without logging in to the game: pick a corp division or a character's personal wallet, a period (24 hours to 30 days) and a filter (sales, purchases, taxes and fees, transfers and contracts). Shows the balance, money in and out, totals by type, and every journal entry. Market entries show the item, quantity, price, station and the other party. CCP keeps 30 days of journal and updates it for apps about once an hour.

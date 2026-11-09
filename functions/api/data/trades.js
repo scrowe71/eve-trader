@@ -24,8 +24,12 @@ export async function onRequestGet({ request, env }) {
       `SELECT transaction_id, source, date, type_id, quantity, unit_price, is_buy, location_id FROM transactions
        WHERE source IN (${marks}) AND date >= ? ORDER BY date DESC LIMIT 50000`).bind(...sources, since).all();
     out.transactions = tx.results.map((t) => ({ ...t, is_buy: !!t.is_buy }));
-    const jr = await env.DB.prepare(
-      `SELECT id, source, date, ref_type, amount, context_id, context_id_type FROM journal
+    // all=1 (Wallet tab): every journal entry with balance and description; otherwise just the fees.
+    const all = url.searchParams.get("all") === "1";
+    const jr = await env.DB.prepare(all
+      ? `SELECT id, source, date, ref_type, amount, balance, context_id, context_id_type, first_party_id, second_party_id, description FROM journal
+         WHERE source IN (${marks}) AND date >= ? ORDER BY date DESC LIMIT 50000`
+      : `SELECT id, source, date, ref_type, amount, context_id, context_id_type FROM journal
        WHERE source IN (${marks}) AND date >= ? AND (ref_type IN ('brokers_fee', 'transaction_tax') OR ref_type LIKE '%surcharge%' OR ref_type LIKE '%scc%') LIMIT 50000`).bind(...sources, since).all();
     out.journal = jr.results;
   }

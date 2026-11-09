@@ -1202,7 +1202,7 @@
   }
 
   function setTab(which) {
-    if (!["doc", "scan", "item", "journal", "sell", "orders", "liq", "rep"].includes(which)) which = "doc";
+    if (!["doc", "scan", "item", "wallet", "journal", "sell", "orders", "liq", "rep"].includes(which)) which = "doc";
     const it = which === "item";
     $("tabItem").setAttribute("aria-pressed", String(it));
     $("iPanel").classList.toggle("hidden", !it);
@@ -1212,6 +1212,10 @@
     $("tabScan").setAttribute("aria-pressed", String(scanT));
     $("tabJournal").setAttribute("aria-pressed", String(jr));
     $("tabSell").setAttribute("aria-pressed", String(sl));
+    const wl = which === "wallet";
+    $("tabWallet").setAttribute("aria-pressed", String(wl));
+    $("wPanel").classList.toggle("hidden", !wl);
+    $("wResults").classList.toggle("hidden", !wl || !wData);
     const rp = which === "rep";
     $("tabRep").setAttribute("aria-pressed", String(rp));
     $("rPanel").classList.toggle("hidden", !rp);
@@ -1416,6 +1420,129 @@
     } catch (e) {
       $("aState").textContent = `Alerts were turned on for ${a.name}, but I couldn't check their status (${e.message}).`;
     }
+  }
+
+  // ---------- wallet journal ----------
+  let wData = null;
+  const REF_NAMES = {
+    market_transaction: "Market transaction", market_escrow: "Buy order escrow", transaction_tax: "Sales tax", brokers_fee: "Broker fee",
+    player_donation: "Donation", corporation_account_withdrawal: "Corp wallet transfer", contract_price: "Contract price",
+    contract_reward: "Courier reward", contract_collateral: "Contract collateral", contract_brokers_fee: "Contract broker fee",
+    contract_sales_tax: "Contract sales tax", contract_deposit: "Contract deposit", contract_reward_deposited: "Courier reward paid",
+    contract_collateral_payout: "Collateral paid out", contract_price_payment_corp: "Contract price (corp)", contract_reward_refund: "Courier reward refund",
+    contract_deposit_refund: "Contract deposit refund", contract_collateral_refund: "Collateral refund", bounty_prizes: "Bounties", ess_escrow_transfer: "ESS payout",
+    agent_mission_reward: "Mission reward", insurance: "Insurance", corporate_reward_payout: "Corp reward", industry_job_tax: "Industry tax",
+    planetary_import_tax: "PI import tax", planetary_export_tax: "PI export tax", jump_clone_activation_fee: "Jump clone fee", structure_gate_jump: "Jump bridge fee",
+  };
+  const refName = (t) => REF_NAMES[t] || String(t || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  function refKind(e, tx) {
+    const t = e.ref_type || "";
+    if (t === "market_transaction") return tx ? (tx.is_buy ? "buy" : "sale") : (e.amount >= 0 ? "sale" : "buy");
+    if (t === "market_escrow") return "buy";
+    if (/tax|broker|fee|surcharge/.test(t)) return "fees";
+    if (/donation|withdrawal|contract|transfer/.test(t)) return "move";
+    return "other";
+  }
+  function fillWalletChoices() {
+    const sel = $("wWhich"), keep = sel.value || store.get("wWhich", "");
+    sel.innerHTML = "";
+    const add = (v, label) => { const o = document.createElement("option"); o.value = v; o.textContent = label; sel.appendChild(o); };
+    const corpChar = settings.jCorpChar && chars[settings.jCorpChar] && hasWallet(chars[settings.jCorpChar]) ? settings.jCorpChar : null;
+    if (corpChar) for (let d = 1; d <= 7; d++) add(`corp:${d}`, `Corp division ${d}${d === Math.round(settings.jCorpDiv || 1) ? " (trading)" : ""}`);
+    Object.values(chars).filter(hasWallet).forEach((c) => add(`char:${c.charId}`, `${c.name} (personal)`));
+    if (!sel.options.length) { add("", "Add a character with wallet access on the Trade journal tab"); return; }
+    const def = corpChar ? `corp:${Math.round(settings.jCorpDiv || 1)}` : sel.options[0].value;
+    sel.value = [...sel.options].some((o) => o.value === keep) ? keep : def;
+  }
+  async function runWallet() {
+    const which = $("wWhich").value;
+    if (!which) { status("Add a character with wallet access on the Trade journal tab first.", "err"); return; }
+    store.set("wWhich", which);
+    $("wRun").disabled = true;
+    try {
+      const [kind, id] = which.split(":");
+      let label, journal, txs, balance, charId;
+      if (kind === "corp") {
+        charId = settings.jCorpChar;
+        status(`Reading corp wallet division ${id}…`, "busy");
+        const corpId = (await esi(`/characters/${charId}/`)).data.corporation_id;
+        const [w, j, t] = await Promise.all([
+          esi(`/corporations/${corpId}/wallets/`, { auth: true, charId }),
+          allPages(`/corporations/${corpId}/wallets/${id}/journal/`, charId),
+          esi(`/corporations/${corpId}/wallets/${id}/transactions/`, { auth: true, charId }),
+        ]);
+        const d = w.data.find((x) => x.division === +id);
+        balance = d ? d.balance : null; journal = j; txs = t.data; label = `Corp division ${id}`;
+      } else {
+        charId = id;
+        status(`Reading ${chars[id].name}'s wallet…`, "busy");
+        const [b, j, t] = await Promise.all([
+          esi(`/characters/${id}/wallet/`, { auth: true, charId }),
+          allPages(`/characters/${id}/wallet/journal/`, charId),
+          esi(`/characters/${id}/wallet/transactions/`, { auth: true, charId }),
+        ]);
+        balance = b.data; journal = j; txs = t.data; label = `${chars[id].name}'s wallet`;
+      }
+      const txById = new Map(txs.map((t) => [t.transaction_id, t]));
+      // Names for items and the other parties.
+      await names(txs.map((t) => t.type_id));
+      const people = [...new Set(journal.flatMap((e) => [e.first_party_id, e.second_party_id]).concat(txs.map((t) => t.client_id)).filter((x) => x && x > 1000000))];
+      const who = {};
+      for (const c of chunk(people, 900)) {
+        try { (await esi("/universe/names/", { method: "POST", body: c })).data.forEach((n) => (who[n.id] = n.name)); } catch {}
+      }
+      wData = { label, balance, journal: journal.sort((a, b) => Date.parse(b.date) - Date.parse(a.date)), txById, who };
+      drawWallet();
+      $("wResults").classList.remove("hidden");
+      status(`${label}: ${intf(journal.length)} journal entries loaded.`, "ok");
+    } catch (e) {
+      if (e.status === 403) status("Not allowed to read that wallet. The corp wallet needs the Accountant or Junior Accountant role, and the character needs wallet access.", "err");
+      else scanError(e);
+    } finally {
+      $("wRun").disabled = false;
+    }
+  }
+  function drawWallet() {
+    const { label, balance, journal, txById, who } = wData;
+    const days = +$("wDays").value, kind = $("wKind").value, q = $("wSearch").value.trim().toLowerCase();
+    const cut = Date.now() - days * 86400000;
+    const rows = [];
+    for (const e of journal) {
+      if (Date.parse(e.date) < cut) continue;
+      const tx = e.context_id_type === "market_transaction_id" ? txById.get(e.context_id) : null;
+      const k = refKind(e, tx);
+      let details;
+      if (tx) details = `${tx.is_buy ? "Bought" : "Sold"} ${intf(tx.quantity)} × ${nameCache[tx.type_id] || "Type " + tx.type_id} @ ${isk(tx.unit_price)} · ${placeLabel(tx.location_id)}${who[tx.client_id] ? " · " + who[tx.client_id] : ""}`;
+      else {
+        const other = e.amount >= 0 ? who[e.first_party_id] : who[e.second_party_id];
+        details = [e.description, e.reason, other && !String(e.description || "").includes(other) ? other : ""].filter(Boolean).join(" · ");
+      }
+      rows.push({ e, k, details });
+    }
+    const shown = rows.filter((r) => (kind === "all" || r.k === kind) && (!q || (r.details + " " + refName(r.e.ref_type)).toLowerCase().includes(q)));
+    const inSum = shown.filter((r) => r.e.amount > 0).reduce((a, r) => a + r.e.amount, 0);
+    const outSum = -shown.filter((r) => r.e.amount < 0).reduce((a, r) => a + r.e.amount, 0);
+    $("wTitle").textContent = label;
+    $("wBal").textContent = balance === null ? "–" : isk(balance);
+    $("wBalNote").textContent = journal[0] ? `as of the newest entry, ${new Date(journal[0].date).toLocaleString()}` : "";
+    $("wIn").textContent = isk(inSum); $("wInNote").textContent = `${intf(shown.filter((r) => r.e.amount > 0).length)} entries`;
+    $("wOut").textContent = isk(outSum); $("wOutNote").textContent = `${intf(shown.filter((r) => r.e.amount < 0).length)} entries`;
+    $("wNet").textContent = isk(inSum - outSum); $("wNet").className = "v " + (inSum - outSum >= 0 ? "pos" : "neg");
+    $("wNetNote").textContent = `${$("wDays").selectedOptions[0].textContent.toLowerCase()}${kind !== "all" || q ? ", filtered" : ""}`;
+    // Totals by type, biggest first.
+    const by = new Map();
+    shown.forEach((r) => { const n = refName(r.e.ref_type); by.set(n, (by.get(n) || 0) + r.e.amount); });
+    $("wBreak").textContent = by.size ? "By type: " + [...by.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 8).map(([n, v]) => `${n} ${v >= 0 ? "+" : ""}${isk(v)}`).join(" · ") : "";
+    const tb = $("wBody"); tb.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    shown.slice(0, 1000).forEach(({ e, details }) => {
+      const tr = document.createElement("tr");
+      const cells = [new Date(e.date).toLocaleString(), refName(e.ref_type), details, (e.amount >= 0 ? "+" : "") + isk(e.amount), e.balance != null ? isk(e.balance) : "–"];
+      cells.forEach((c, i) => { const td = document.createElement("td"); td.textContent = c; if (i === 1 || i === 2) td.className = "name"; if (i === 3) td.className = e.amount >= 0 ? "pos" : "neg"; tr.appendChild(td); });
+      frag.appendChild(tr);
+    });
+    tb.appendChild(frag);
+    $("wFoot").textContent = shown.length > 1000 ? `Showing the newest 1,000 of ${intf(shown.length)}. Narrow the period or search.` : `${intf(shown.length)} entries.`;
   }
 
   // ---------- single item check ----------
@@ -3049,6 +3176,12 @@
     $("tabLiq").addEventListener("click", () => setTab("liq"));
     $("tabRep").addEventListener("click", () => setTab("rep"));
     $("tabItem").addEventListener("click", () => { setTab("item"); fillItemNames(); });
+    $("tabWallet").addEventListener("click", () => { setTab("wallet"); fillWalletChoices(); });
+    $("wRun").addEventListener("click", runWallet);
+    $("wWhich").addEventListener("change", runWallet);
+    $("wDays").addEventListener("change", () => { if (wData) drawWallet(); });
+    $("wKind").addEventListener("change", () => { if (wData) drawWallet(); });
+    $("wSearch").addEventListener("input", () => { if (wData) drawWallet(); });
     $("iRun").addEventListener("click", runItem);
     $("iName").addEventListener("keydown", (e) => { if (e.key === "Enter") runItem(); });
     $("iName").addEventListener("input", suggestItems);
