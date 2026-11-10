@@ -281,3 +281,7 @@ Anything bought away from the hub: Jita 4-4, or a bargain you picked up elsewher
 ### Wallet
 
 Review a wallet without logging in to the game: pick a corp division or a character's personal wallet, a period (24 hours to 30 days) and a filter (sales, purchases, taxes and fees, transfers and contracts). Shows the balance, money in and out, totals by type, and every journal entry. Market entries show the item, quantity, price, station and the other party. CCP keeps 30 days of journal and updates it for apps about once an hour.
+
+### Buyouts (Order check)
+
+When someone lists below you, the Order check also asks whether it's worth buying their cheaper units and relisting them at your price. Each unit bought at p and sold at your price P makes P × (1 − sales tax − listing fee) − p. It goes cheapest first, while each unit still returns at least your buyout % (default 10%) and your whole stack would still sell within your buyout days (default 14) at the current pace. If buying everything ahead of you qualifies and makes at least your minimum profit per item, the verdict is **Buy out** (you end up the lowest without touching your order); otherwise any profitable partial buyout is noted in "Why". The Discord alert posts buyouts too.

@@ -491,6 +491,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         <div class="fields">
           <label>Leave it if the cheaper units ahead of you would sell within (days)<input id="oAheadDays" type="number" min="0" step="0.5"></label>
           <label>Ignore undercuts smaller than (%)<input id="oMinGap" type="number" min="0" step="0.5"></label>
+          <label>Buy out cheaper listings if each unit returns at least (%)<input id="oBuyRoi" type="number" min="0" step="1"></label>
+          <label>…and your stack would still sell within (days)<input id="oBuyDays" type="number" min="1" step="1"></label>
           <label class="full">Discord undercut alert (every 30 min, only orders worth the fee)
             <select id="oAlert"><option value="on">On</option><option value="off">Off</option></select>
           </label>
@@ -508,7 +510,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
         </div>
         <div class="tablewrap">
           <table>
-            <thead><tr><th class="name">Item</th><th>Verdict</th><th>Left / total</th><th>Your price</th><th>Lowest other (sellers)</th><th>Cheaper units ahead</th><th>New price</th><th>Update fee</th><th>Your min</th><th class="name">Why</th></tr></thead>
+            <thead><tr><th class="name">Item</th><th>Verdict</th><th>Left / total</th><th>Your price</th><th>Lowest other (sellers)</th><th>Cheaper units ahead</th><th>New price</th><th>Update fee</th><th>Buyout</th><th>Your min</th><th class="name">Why</th></tr></thead>
             <tbody id="oTbody"></tbody>
           </table>
         </div>
@@ -672,8 +674,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.26.0"></script>
-<script src="config.js?v=2.26.0"></script>
-<script src="app.js?v=2.26.0"></script>
+<script src="version.js?v=2.27.0"></script>
+<script src="config.js?v=2.27.0"></script>
+<script src="app.js?v=2.27.0"></script>
 </body>
 </html>

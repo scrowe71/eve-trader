@@ -50,7 +50,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", iBuyHow: "instant", iExpress: "share", iUpdates: 1, iHaul: "on", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", oBuyRoi: 10, oBuyDays: 14, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", iBuyHow: "instant", iExpress: "share", iUpdates: 1, iHaul: "on", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dExcludeName", "iBuyHow", "iExpress", "iHaul", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -2802,6 +2802,28 @@
     return Math.max(100, rr * bf * newPrice * qty + bf * Math.max(0, newPrice - oldPrice) * qty);
   }
 
+  // Buyout: buy the cheaper listings ahead of you and relist them at your price.
+  // Each unit bought at p and sold at your price P makes P × (1 − sales tax − listing fee) − p.
+  // Cheapest first, while each unit still returns at least oBuyRoi % and your stack (yours + bought)
+  // would sell within oBuyDays at the current pace.
+  function buyoutPlan(others, P, keep, perDay, remain) {
+    const cheaper = others.filter((b) => b.price < P).sort((a, b) => a.price - b.price);
+    const ahead = cheaper.reduce((a, b) => a + b.volume_remain, 0);
+    const out = { qty: 0, cost: 0, profit: 0, maxPrice: 0, ahead, full: false, capped: false };
+    if (!cheaper.length || !(perDay > 0)) return out;
+    const room = Math.max(0, Math.floor(settings.oBuyDays * perDay - remain));
+    for (const b of cheaper) {
+      const per = P * keep - b.price;
+      if (per <= 0 || per / b.price < settings.oBuyRoi / 100) break;
+      const take = Math.min(b.volume_remain, room - out.qty);
+      if (take <= 0) { out.capped = true; break; }
+      out.qty += take; out.cost += take * b.price; out.profit += take * per; out.maxPrice = b.price;
+      if (take < b.volume_remain) { out.capped = true; break; }
+    }
+    out.full = out.qty === ahead && ahead > 0;
+    return out;
+  }
+
   async function runOrders() {
     if (!hub) { status("Pick your hub first.", "err"); return; }
     $("oRun").disabled = true;
@@ -2849,8 +2871,18 @@
         const r = {
           orderId: o.order_id, typeId: o.type_id, name: nameCache[o.type_id] || "Type " + o.type_id,
           remain: o.volume_remain, total: o.volume_total, price: o.price, lowest, sellers, ahead, perDay, aheadDays,
-          minPrice, target: null, fee: 0, drop: 0, verdict: "", why: "", kind: "",
+          minPrice, target: null, fee: 0, drop: 0, verdict: "", why: "", kind: "", buy: null,
         };
+        // Can you buy out what's ahead of you and relist it at your price?
+        const bo = buyoutPlan(others, o.price, keep, perDay, o.volume_remain);
+        if (bo.qty && bo.profit >= settings.dMinProfit) r.buy = bo;
+        const buyText = r.buy ? ` Buying ${r.buy.full ? "all" : "the cheapest"} ${intf(r.buy.qty)} (up to ${isk(r.buy.maxPrice)} each, ${isk(r.buy.cost)}) and relisting at your price would make about ${isk(r.buy.profit)}` +
+          (r.buy.full ? ", and leaves you the lowest." : r.buy.capped ? ` (more would be over ${settings.oBuyDays} days of sales).` : ".") : "";
+        if (r.buy && r.buy.full) {
+          r.verdict = "Buy out"; r.kind = "warn";
+          r.why = `Cheaper listings are worth more relisted at your price.` + buyText + ` Leave your order as it is.`;
+          return r;
+        }
         if (lowest === null || o.price <= lowest) {
           r.verdict = "Leave it"; r.kind = "good";
           r.why = lowest === null ? "No other sellers. You're the only one." : "You're already the lowest.";
@@ -2881,14 +2913,18 @@
             (isFinite(aheadDays) ? ` (~${aheadDays.toFixed(1)} days of sales)` : "") +
             `. Updating costs ${isk(r.fee)} in fees, plus ${isk(r.drop)} less if it all sells at the new price.`;
         }
+        r.why += buyText;
         return r;
       });
-      const order = { Update: 0, Hold: 1, Wait: 2, "Leave it": 3 };
+      const order = { "Buy out": 0, Update: 1, Hold: 2, Wait: 3, "Leave it": 4 };
       oRows.sort((a, b) => order[a.verdict] - order[b.verdict] || a.name.localeCompare(b.name));
       drawOrders();
       $("oResults").classList.remove("hidden");
       const up = oRows.filter((r) => r.verdict === "Update");
-      status(`${oRows.length} sell orders checked: ${up.length} worth updating (${isk(up.reduce((a, r) => a + r.fee, 0))} in fees), ${oRows.length - up.length} to leave alone.` + (notes.length ? " " + notes.join(" ") : ""), "ok");
+      const bos = oRows.filter((r) => r.buy);
+      status(`${oRows.length} sell orders checked: ${up.length} worth updating (${isk(up.reduce((a, r) => a + r.fee, 0))} in fees)` +
+        (bos.length ? `, ${bos.length} with a profitable buyout (about ${isk(bos.reduce((a, r) => a + r.buy.profit, 0))} for ${isk(bos.reduce((a, r) => a + r.buy.cost, 0))})` : "") +
+        `, ${oRows.length - up.length - oRows.filter((r) => r.verdict === "Buy out").length} to leave alone.` + (notes.length ? " " + notes.join(" ") : ""), "ok");
     } catch (e) {
       scanError(e);
     } finally {
@@ -2900,7 +2936,7 @@
     const up = oRows.filter((r) => r.verdict === "Update");
     $("oCount").textContent = intf(oRows.length);
     $("oUp").textContent = intf(up.length);
-    $("oLeave").textContent = intf(oRows.length - up.length);
+    $("oLeave").textContent = intf(oRows.filter((r) => r.verdict === "Leave it" || r.verdict === "Hold" || r.verdict === "Wait").length);
     $("oFee").textContent = isk(up.reduce((a, r) => a + r.fee, 0));
     const tb = $("oTbody");
     tb.innerHTML = "";
@@ -2911,7 +2947,7 @@
       add(r.name, "name");
       const vd = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = "chip " + (r.verdict === "Update" ? "warn" : r.verdict === "Hold" ? "bad" : r.verdict === "Wait" ? "orange" : "good");
+      chip.className = "chip " + (r.verdict === "Update" || r.verdict === "Buy out" ? "warn" : r.verdict === "Hold" ? "bad" : r.verdict === "Wait" ? "orange" : "good");
       chip.textContent = r.verdict;
       vd.appendChild(chip);
       tr.appendChild(vd);
@@ -2934,6 +2970,8 @@
       } else nt.textContent = "–";
       tr.appendChild(nt);
       add(r.verdict === "Update" ? isk(r.fee) : "–");
+      const bt = add(r.buy ? `${intf(r.buy.qty)} ≤ ${isk(r.buy.maxPrice)} → +${isk(r.buy.profit)}` : "–", r.buy ? "pos" : "");
+      if (r.buy) bt.title = `Buy ${intf(r.buy.qty)} of the ${intf(r.buy.ahead)} cheaper units for ${isk(r.buy.cost)} in total, then list them at ${isk(r.price)}.`;
       add(r.minPrice ? isk(r.minPrice) : "–");
       add(r.why, "name note");
       frag.appendChild(tr);

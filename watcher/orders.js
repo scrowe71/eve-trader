@@ -149,6 +149,8 @@ export async function findUpdates(ctx, costs, w) {
   const mySells = myOrders.filter((o) => !o.is_buy_order && o.location_id === hub.id);
   const demand = await demandFor(ctx, w, [...new Set(mySells.map((o) => o.type_id))]);
   const rr = 1 - (0.5 + 0.06 * Math.min(5, s.abr));
+  const keep = 1 - ctx.tax - bf;
+  const buyRoi = (s.oBuyRoi ?? 10) / 100, buyDays = s.oBuyDays ?? 14, minProfit = s.dMinProfit ?? 1e6;
   const out = [];
   let pending = 0;
   for (const o of mySells) {
@@ -159,10 +161,25 @@ export async function findUpdates(ctx, costs, w) {
     if (!others.length) continue;
     const lowest = Math.min(...others.map((b) => b.price));
     if (o.price <= lowest) continue;
-    if (Date.now() - Date.parse(o.issued) < 5 * 60000) continue;
     const ahead = others.filter((b) => b.price < o.price).reduce((a, b) => a + b.volume_remain, 0);
     const it = costs.items.get(o.type_id);
     const per = demand.get(o.type_id) || 0;
+    // Buyout: every cheaper listing is worth buying and relisting at your price, and the stack still sells in time.
+    if (per > 0) {
+      const cheaper = others.filter((b) => b.price < o.price).sort((a, b) => a.price - b.price);
+      const room = Math.floor(buyDays * per - o.volume_remain);
+      let q = 0, cost = 0, profit = 0, maxPrice = 0, ok = true;
+      for (const b of cheaper) {
+        const gain = o.price * keep - b.price;
+        if (gain <= 0 || gain / b.price < buyRoi || q + b.volume_remain > room) { ok = false; break; }
+        q += b.volume_remain; cost += b.volume_remain * b.price; profit += b.volume_remain * gain; maxPrice = b.price;
+      }
+      if (ok && q > 0 && profit >= minProfit) {
+        out.push({ kind: "buyout", orderId: o.order_id, id: o.type_id, price: o.price, lowest, qty: q, cost, profit, maxPrice, ahead, remain: o.volume_remain });
+        continue;
+      }
+    }
+    if (Date.now() - Date.parse(o.issued) < 5 * 60000) continue;
     const aheadDays = per > 0 ? ahead / per : Infinity;
     const gap = (o.price - lowest) / o.price * 100;
     const target = floorTick(lowest - tick(lowest) * 0.5);
@@ -171,7 +188,7 @@ export async function findUpdates(ctx, costs, w) {
     if (aheadDays <= s.oAheadDays) continue;
     if (gap < s.oMinGap && aheadDays <= s.oAheadDays * 3) continue;
     const fee = Math.max(100, rr * bf * target * o.volume_remain);
-    out.push({ orderId: o.order_id, id: o.type_id, price: o.price, lowest, target, ahead, aheadDays, fee, remain: o.volume_remain });
+    out.push({ kind: "update", orderId: o.order_id, id: o.type_id, price: o.price, lowest, target, ahead, aheadDays, fee, remain: o.volume_remain });
   }
   const nm = await names([...new Set(out.map((u) => u.id))]);
   out.forEach((u) => (u.name = nm.get(u.id) || "Type " + u.id));

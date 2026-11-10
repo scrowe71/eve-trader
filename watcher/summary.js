@@ -70,7 +70,7 @@ export async function undercutCheck(env, w, access, info, corpId) {
   const next = {};
   const fresh = [];
   for (const u of updates) {
-    const key = `${u.target}`;              // same order + same new price = already told you
+    const key = u.kind === "buyout" ? `buy:${u.qty}:${u.maxPrice}` : `${u.target}`;   // same order + same advice = already told you
     next[u.orderId] = key;
     if (prev[u.orderId] !== key) fresh.push(u);
   }
@@ -80,13 +80,14 @@ export async function undercutCheck(env, w, access, info, corpId) {
       : updates.pending ? `${updates.pending} orders skipped this time while item details are still being looked up; they're checked on the next runs.` : "" };
   if (!fresh.length) return;
   await discord(w.webhook, {
-    content: `🔧 **${fresh.length} order${fresh.length === 1 ? " is" : "s are"} now worth updating** at ${ctx.hub.system || ctx.hub.name}`,
+    content: `🔧 **${fresh.length} order${fresh.length === 1 ? " needs" : "s need"} attention** at ${ctx.hub.system || ctx.hub.name}`,
     embeds: [{
       color: 0xe0a645,
-      description: fresh.slice(0, 15).map((u) =>
-        `**${u.name}**: you ${isk(u.price)}, lowest ${isk(u.lowest)} · ${n(u.ahead)} cheaper units ahead` +
-        `${isFinite(u.aheadDays) ? ` (~${u.aheadDays.toFixed(1)} days)` : ""}\n→ update to **${n(u.target)}** · fee ${isk(u.fee)}`).join("\n\n").slice(0, 4000),
-      footer: { text: "EveTrader · only orders the Order check says are worth the fee" },
+      description: fresh.slice(0, 15).map((u) => u.kind === "buyout"
+        ? `**${u.name}**: you ${isk(u.price)}, lowest ${isk(u.lowest)}\n💰 **buy out** all ${n(u.qty)} cheaper (up to ${isk(u.maxPrice)} each, ${isk(u.cost)}) and relist at your price → about **+${isk(u.profit)}**`
+        : `**${u.name}**: you ${isk(u.price)}, lowest ${isk(u.lowest)} · ${n(u.ahead)} cheaper units ahead` +
+          `${isFinite(u.aheadDays) ? ` (~${u.aheadDays.toFixed(1)} days)` : ""}\n→ update to **${n(u.target)}** · fee ${isk(u.fee)}`).join("\n\n").slice(0, 4000),
+      footer: { text: "EveTrader · only orders the Order check says are worth acting on" },
       timestamp: new Date().toISOString(),
     }],
   });
