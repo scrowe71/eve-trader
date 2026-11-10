@@ -50,7 +50,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", oBuyRoi: 10, oBuyDays: 14, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", iBuyHow: "instant", iExpress: "share", iUpdates: 1, iHaul: "on", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", oBuyRoi: 10, oBuyDays: 14, oExpireDays: 3, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", iBuyHow: "instant", iExpress: "share", iUpdates: 1, iHaul: "on", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dExcludeName", "iBuyHow", "iExpress", "iHaul", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -1883,7 +1883,7 @@
       }
 
       // Cloud history (D1): everything the worker has copied since the project start, older than CCP keeps.
-      let hauls = [], cloudNote = "";
+      let hauls = [], cloudNote = "", orderUpdates = [];
       if (haveCloud) {
         status("Reading cloud history…", "busy");
         try {
@@ -1891,6 +1891,7 @@
           txs.push(...c.transactions);
           journal.push(...c.journal);
           hauls = c.hauls || [];
+          orderUpdates = c.orderUpdates || [];
           cloudNote = c.lastArchive ? ` Cloud history last copied ${new Date(c.lastArchive).toLocaleString()}.` : " Cloud history has no wallet copy yet.";
           if (c.archiveError) cloudNote += " Cloud problem: " + c.archiveError;
         } catch (e) {
@@ -1902,7 +1903,10 @@
       // Unique transactions (corp + personal can overlap).
       const seen = new Set();
       const uniq = txs.filter((t) => (seen.has(t.transaction_id) ? false : (seen.add(t.transaction_id), true)));
-      jRaw = { tx: uniq, hauls, journal };
+      jRaw = { tx: uniq, hauls, journal, orderUpdates };
+      // Update fees per item in the period (recorded by the watcher when it sees your price change).
+      const updByType = new Map();
+      orderUpdates.forEach((u) => { if (Date.parse(u.date) >= since) updByType.set(u.type_id, (updByType.get(u.type_id) || 0) + (u.fee || 0)); });
       // What was actually read, so it's clear why something is or isn't in the journal.
       const inRange = uniq.filter((t) => Date.parse(t.date) >= from);
       const newest = inRange.reduce((m, t) => Math.max(m, Date.parse(t.date)), 0);
@@ -1952,7 +1956,8 @@
         // Courier cost only applies to the share bought in Jita; items picked up elsewhere you moved yourself.
         r.haulUnit = r.jitaQty ? (r.jitaQty / r.buyQty) * haulCost(volCache[r.typeId] || 0, r.jitaIsk / r.jitaQty) : 0;
         r.cogs = r.avgBuy !== null ? r.soldQty * (r.avgBuy + r.haulUnit) : null;
-        r.fees = r.revenue * (tax + bfH);
+        r.updFees = updByType.get(r.typeId) || 0;
+        r.fees = r.revenue * (tax + bfH) + r.updFees;
         r.profit = r.cogs !== null ? r.revenue - r.fees - r.cogs : null;
         r.roi = r.cogs ? r.profit / r.cogs : null;
         const spanDays = Math.max(1, Math.min(days, (Date.now() - since) / 86400000));
@@ -1984,7 +1989,8 @@
         : walletTax;
       // Broker fees are charged per order, not per sale, so they can't be tied to items reliably.
       // Jita-only view: estimate listing fees for what sold. Everything view: what the wallet was charged.
-      const brokerPaid = jitaOnly ? revenue * bfH : walletBroker;
+      const updTotal = jRows.reduce((a, r) => a + (r.updFees || 0), 0);
+      const brokerPaid = jitaOnly ? revenue * bfH + updTotal : walletBroker;
 
       // Last 24 hours: sales of the items shown, minus their Jita cost + hauling, sales tax and listing fee.
       const sold24 = jRows.filter((r) => r.qty24 > 0);
@@ -2406,7 +2412,7 @@
 
   // Profit for sales in [a, b): revenue - (Jita cost + hauling) - sales tax - broker fees charged in the range.
   function reportFor(a, b, ctx) {
-    const { tx, costOf, taxBySale, feeEntries, jitaOnly, tax, group, bf } = ctx;
+    const { tx, costOf, taxBySale, feeEntries, updates = [], jitaOnly, tax, group, bf } = ctx;
     const items = new Map(), buckets = new Map();
     const bucket = (k) => { let x = buckets.get(k); if (!x) { x = { key: k, revenue: 0, profit: 0, fees: 0 }; buckets.set(k, x); } return x; };
     let revenue = 0, cogs = 0, taxPaid = 0, units = 0, unknown = 0;
@@ -2434,7 +2440,18 @@
       broker += -(e.amount || 0);
     }
     const brokerSold = revenue * bf;   // listing fees on the units that sold
-    return { revenue, cogs, taxPaid, broker, brokerSold, units, unknown, profit: revenue - cogs - taxPaid - brokerSold, cash: revenue - cogs - taxPaid - broker, items, buckets };
+    // Price-update fees the watcher recorded in this range, charged to their item.
+    let upd = 0;
+    for (const u of updates) {
+      const ms = Date.parse(u.date);
+      if (ms < a || ms >= b) continue;
+      upd += u.fee || 0;
+      const it = items.get(u.type_id) || { typeId: u.type_id, units: 0, revenue: 0, cogs: 0, tax: 0 };
+      it.upd = (it.upd || 0) + (u.fee || 0);
+      items.set(u.type_id, it);
+      bucket(bucketKey(ms, group)).profit -= u.fee || 0;
+    }
+    return { revenue, cogs, taxPaid, broker, brokerSold, upd, units, unknown, profit: revenue - cogs - taxPaid - brokerSold - upd, cash: revenue - cogs - taxPaid - broker, items, buckets };
   }
 
   async function loadChartJs() {
@@ -2470,7 +2487,7 @@
       const jr = jRaw.journal.filter((e) => (seenJ.has(e.id) ? false : (seenJ.add(e.id), true)));
       const taxBySale = new Map(jr.filter((e) => e.ref_type === "transaction_tax" && e.context_id).map((e) => [e.context_id, -(e.amount || 0)]));
       const feeEntries = jr.filter((e) => (e.amount || 0) < 0 && /broker|scc|surcharge/i.test(e.ref_type || "") && Date.parse(e.date) >= PROJECT_START);
-      const ctx = { tx, costOf, taxBySale, feeEntries, jitaOnly: settings.jSource === "jita", tax: salesTax(), group: settings.rGroup, bf: hubBroker() };
+      const ctx = { tx, costOf, taxBySale, feeEntries, updates: jRaw.orderUpdates || [], jitaOnly: settings.jSource === "jita", tax: salesTax(), group: settings.rGroup, bf: hubBroker() };
       const cur = reportFor(a, b, ctx);
       const prev = reportFor(a - (b - a), a, ctx);
       const hauls = (jRaw.hauls || []).filter((h) => h.start_location_id === JITA_STATION && h.end_location_id === hub.id && h.status !== "deleted" && h.status !== "rejected" && Date.parse(h.date_issued) >= a && Date.parse(h.date_issued) < b);
@@ -2492,7 +2509,7 @@
       $("rBroker").textContent = isk(cur.broker);
       const prepaid = cur.broker - cur.brokerSold;
       $("rBrokerNote").textContent = prepaid > 0
-        ? `${isk(cur.brokerSold)} on what sold; ${isk(prepaid)} paid upfront on listings still up (and any order updates)`
+        ? `${isk(cur.brokerSold)} on what sold${cur.upd ? `, ${isk(cur.upd)} on price updates (in profit)` : ""}; ${isk(Math.max(0, prepaid - (cur.upd || 0)))} paid upfront on listings still up`
         : `all on what sold`;
       $("rCash").textContent = isk(cur.cash);
       $("rCash").className = "v " + (cur.cash >= 0 ? "pos" : "neg");
@@ -2532,8 +2549,8 @@
       await names([...cur.items.keys()]);
       rRows = [...cur.items.values()].map((it) => ({
         ...it, name: nameCache[it.typeId] || "Type " + it.typeId,
-        profit: it.revenue - it.cogs - it.tax - it.revenue * hubBroker(),
-        roi: it.cogs ? (it.revenue - it.cogs - it.tax - it.revenue * hubBroker()) / it.cogs : null,
+        profit: it.revenue - it.cogs - it.tax - it.revenue * hubBroker() - (it.upd || 0),
+        roi: it.cogs ? (it.revenue - it.cogs - it.tax - it.revenue * hubBroker() - (it.upd || 0)) / it.cogs : null,
         share: cur.revenue ? it.revenue / cur.revenue : 0,
       })).sort((x, y) => y.profit - x.profit);
       const tb = $("rTbody");
@@ -2868,6 +2885,7 @@
         const c = cost.get(o.type_id);
         const minPrice = c ? ceilTick(c * (1 + minRoi) / keep) : null;
         const minutesSince = (now - Date.parse(o.issued)) / 60000;
+        const expLeft = (Date.parse(o.issued) + (o.duration || 90) * 86400000 - now) / 86400000;
         const r = {
           orderId: o.order_id, typeId: o.type_id, name: nameCache[o.type_id] || "Type " + o.type_id,
           remain: o.volume_remain, total: o.volume_total, price: o.price, lowest, sellers, ahead, perDay, aheadDays,
@@ -2914,6 +2932,7 @@
             `. Updating costs ${isk(r.fee)} in fees, plus ${isk(r.drop)} less if it all sells at the new price.`;
         }
         r.why += buyText;
+        if (settings.oExpireDays > 0 && expLeft <= settings.oExpireDays) r.why += ` ⏳ Expires in about ${expLeft < 1 ? Math.max(1, Math.round(expLeft * 24)) + " hours" : expLeft.toFixed(1) + " days"}: relist before then.`;
         return r;
       });
       const order = { "Buy out": 0, Update: 1, Hold: 2, Wait: 3, "Leave it": 4 };

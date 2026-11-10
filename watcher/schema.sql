@@ -57,3 +57,18 @@ CREATE TABLE IF NOT EXISTS settings (
   data    TEXT NOT NULL,
   updated TEXT NOT NULL
 );
+
+-- Price changes the watcher saw on your hub sell orders, with the estimated update fee for each.
+-- (The wallet charges update fees without saying which item they were for.) Created automatically.
+CREATE TABLE IF NOT EXISTS order_updates (
+  order_id  INTEGER NOT NULL,
+  owner     INTEGER NOT NULL,
+  date      TEXT NOT NULL,
+  type_id   INTEGER NOT NULL,
+  old_price REAL,
+  new_price REAL,
+  remain    INTEGER,
+  fee       REAL,
+  PRIMARY KEY (order_id, date)
+);
+CREATE INDEX IF NOT EXISTS ou_owner_date ON order_updates (owner, date);

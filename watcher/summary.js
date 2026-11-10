@@ -56,11 +56,67 @@ export async function postSummary(env, w, access, info, corpId) {
 }
 
 // Undercut alert: post only orders that have newly become worth updating since the last check.
+// Remember each hub sell order between runs: record price changes (with their update fee) in D1,
+// and warn once on Discord when an order is close to expiring.
+const ORDER_UPDATES_SQL = `CREATE TABLE IF NOT EXISTS order_updates (order_id INTEGER NOT NULL, owner INTEGER NOT NULL, date TEXT NOT NULL,
+  type_id INTEGER NOT NULL, old_price REAL, new_price REAL, remain INTEGER, fee REAL, PRIMARY KEY (order_id, date))`;
+async function trackOrders(env, w, ctx) {
+  const { s, hub, bf } = ctx;
+  const rr = 1 - (0.5 + 0.06 * Math.min(5, s.abr || 0));
+  const sells = ctx.myOrders.filter((o) => !o.is_buy_order && o.location_id === hub.id);
+  const seen = w.ordersSeen || {}, next = {}, rows = [];
+  const firstRun = !w.ordersSeen;
+  for (const o of sells) {
+    const p = seen[o.order_id];
+    if (p && o.price !== p.price) {
+      const up = Math.max(0, o.price - p.price) * o.volume_remain;
+      const fee = Math.max(100, rr * bf * o.price * o.volume_remain + bf * up);
+      rows.push([o.order_id, w.charId, o.issued || new Date().toISOString(), o.type_id, p.price, o.price, o.volume_remain, fee]);
+    }
+    // Expiry counts from when the order was first placed; an update doesn't extend it.
+    next[o.order_id] = { price: o.price, first: p ? p.first : o.issued, dur: o.duration || 90, type: o.type_id };
+  }
+  w.ordersSeen = next;
+  if (rows.length && env.DB) {
+    try {
+      await env.DB.prepare(ORDER_UPDATES_SQL).run();
+      await env.DB.batch(rows.map((r) => env.DB.prepare("INSERT OR IGNORE INTO order_updates (order_id, owner, date, type_id, old_price, new_price, remain, fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(...r)));
+    } catch (e) { w.orderUpdatesError = e.message; }
+  }
+
+  const days = s.oExpireDays ?? 3;
+  const warned = w.expiryWarned || {}, keepWarned = {};
+  const soon = [];
+  for (const [id, x] of Object.entries(next)) {
+    const left = (Date.parse(x.first) + x.dur * 86400000 - Date.now()) / 86400000;
+    if (warned[id]) { keepWarned[id] = 1; continue; }
+    if (days > 0 && left <= days && !firstRun) { soon.push({ id, type: x.type, left }); keepWarned[id] = 1; }
+    else if (days > 0 && left <= days && firstRun) keepWarned[id] = 1;   // already close when tracking started: don't flood
+  }
+  w.expiryWarned = keepWarned;
+  if (!soon.length) return;
+  const nm = await names([...new Set(soon.map((x) => x.type))]);
+  soon.sort((a, b) => a.left - b.left);
+  await discord(w.webhook, {
+    content: `⏳ **${soon.length} sell order${soon.length === 1 ? "" : "s"} expiring soon** at ${hub.system || hub.name}`,
+    embeds: [{
+      color: 0xd9822b,
+      description: soon.slice(0, 20).map((x) => {
+        const o = sells.find((y) => String(y.order_id) === String(x.id));
+        return `**${nm.get(x.type) || "Type " + x.type}**: ${o ? `${n(o.volume_remain)} left at ${isk(o.price)} · ` : ""}expires in about ${x.left < 1 ? Math.max(1, Math.round(x.left * 24)) + " hours" : x.left.toFixed(1) + " days"}`;
+      }).join("\n").slice(0, 4000),
+      footer: { text: "EveTrader · cancel and relist before it runs out, or the rest goes back to your hangar" },
+      timestamp: new Date().toISOString(),
+    }],
+  });
+}
+
 export async function undercutCheck(env, w, access, info, corpId) {
   const at = new Date().toISOString();
   if (!env.DB) { w.undercutInfo = { at, note: "The cloud database isn't connected to the worker." }; return; }
   const ctx = await loadContext(env, w, access, info, corpId);
   if (!ctx.hub) { w.undercutInfo = { at, note: "No hub saved in the cloud yet. Open the site and pick your hub once." }; return; }
+  try { await trackOrders(env, w, ctx); } catch (e) { w.orderUpdatesError = e.message; }
   if (ctx.s.oAlert === "off") { w.undercutInfo = { at, note: "Undercut alerts are switched off in Order check settings." }; return; }
   if (ctx.marketNote) { w.undercutInfo = { at, note: ctx.marketNote }; return; }
   const costs = await itemCosts(ctx);

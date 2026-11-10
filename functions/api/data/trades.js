@@ -35,5 +35,10 @@ export async function onRequestGet({ request, env }) {
   }
   const h = await env.DB.prepare("SELECT * FROM hauls WHERE owner = ? AND date_issued >= ? ORDER BY date_issued DESC").bind(w.charId, since).all();
   out.hauls = h.results;
+  // Price updates the watcher saw (with estimated fees), so they can be charged to the right item.
+  try {
+    const ou = await env.DB.prepare("SELECT order_id, date, type_id, old_price, new_price, remain, fee FROM order_updates WHERE owner = ? AND date >= ?").bind(w.charId, since).all();
+    out.orderUpdates = ou.results;
+  } catch { out.orderUpdates = []; }
   return json(out);
 }

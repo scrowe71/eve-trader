@@ -285,3 +285,9 @@ Review a wallet without logging in to the game: pick a corp division or a charac
 ### Buyouts (Order check)
 
 When someone lists below you, the Order check also asks whether it's worth buying their cheaper units and relisting them at your price. Each unit bought at p and sold at your price P makes P × (1 − sales tax − listing fee) − p. It goes cheapest first, while each unit still returns at least your buyout % (default 10%) and your whole stack would still sell within your buyout days (default 14) at the current pace. If buying everything ahead of you qualifies and makes at least your minimum profit per item, the verdict is **Buy out** (you end up the lowest without touching your order); otherwise any profitable partial buyout is noted in "Why". The Discord alert posts buyouts too.
+
+### Expiring orders and update fees
+
+Every 30 minutes the watcher remembers your hub sell orders. When one is within your reminder days of expiring (default 3, set on the Order check tab), it posts once to Discord. Expiry is counted from when the watcher first saw the order (updating a price doesn't extend it), so for orders placed before tracking started it can be a little late.
+
+It also records every price change it sees, with the update fee worked out from your Advanced Broker Relations level, and stores it in the cloud. The Trade journal and Reports charge those fees to the item they were for, so each item's profit includes what you spent chasing its price. If you update the same order twice within 30 minutes, only the last change is seen.

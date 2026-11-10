@@ -493,6 +493,7 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
           <label>Ignore undercuts smaller than (%)<input id="oMinGap" type="number" min="0" step="0.5"></label>
           <label>Buy out cheaper listings if each unit returns at least (%)<input id="oBuyRoi" type="number" min="0" step="1"></label>
           <label>…and your stack would still sell within (days)<input id="oBuyDays" type="number" min="1" step="1"></label>
+          <label>Discord reminder when an order expires within (days, 0 = off)<input id="oExpireDays" type="number" min="0" step="1"></label>
           <label class="full">Discord undercut alert (every 30 min, only orders worth the fee)
             <select id="oAlert"><option value="on">On</option><option value="off">Off</option></select>
           </label>
@@ -674,8 +675,8 @@ footer { color: var(--muted); font-size: 12px; max-width: 90ch; }
     <p class="ver" id="ver"></p>
   </footer>
 </div>
-<script src="version.js?v=2.27.0"></script>
-<script src="config.js?v=2.27.0"></script>
-<script src="app.js?v=2.27.0"></script>
+<script src="version.js?v=2.28.0"></script>
+<script src="config.js?v=2.28.0"></script>
+<script src="app.js?v=2.28.0"></script>
 </body>
 </html>
