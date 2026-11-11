@@ -50,7 +50,7 @@
     dDays: 30, dDemand: "a30", dClasses: "seed", dMarkup: 130, dMinRoi: 20,
     dItemCap: 500000000, dBudget: 10000000000, dCargo: 0, dShow: "all", dMinProfit: 1000000, dPriority: "soldout", dTol: 2,
     trade: 4, retail: 0, wholesale: 0, tycoon: 0, openOrders: 0,
-    oAheadDays: 1, oMinGap: 1, oAlert: "on", oBuyRoi: 10, oBuyDays: 14, oExpireDays: 3, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", iBuyHow: "instant", iExpress: "share", iUpdates: 1, iHaul: "on", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
+    oAheadDays: 1, oMinGap: 1, oAlert: "on", oBuyRoi: 10, oBuyDays: 14, oBuyMax: 10, oExpireDays: 3, lMaxDays: 7, lBbPct: 95, lBbFeePct: 0, lBbFlat: 0, lBbUnder: 50000000, lBbExclude: "Frequency Crystal, Laser Crystal", dSpike: 15, dSpikeAct: "skip", dMinDaily: 2, dMaxSellers: 3, dMaxStockDays: 14, dStockBand: 15, dExclude: "Material, Asteroid, Planetary Commodities, Planetary Resources", dBudgetMode: "wallet", dReserve: 10, dBurst: 2, dSlowRate: 5, dSlowDays: 7, dCushion: "on", dNoBbCap: 0, dExcludeName: "Capital", iBuyHow: "instant", iExpress: "share", iUpdates: 1, iHaul: "on", rPreset: "30", rGroup: "day", rFrom: "", rTo: "",
     jPeriod: 14, jWhere: "hub", jCorpWallet: "on", jCorpDiv: 1, jCorpChar: "", jFrom: "", jSource: "jita",
   };
   const TEXT_SETTINGS = new Set(["dExclude", "oAlert", "rPreset", "rGroup", "rFrom", "rTo", "lBbExclude", "dSpikeAct", "dCushion", "dExcludeName", "iBuyHow", "iExpress", "iHaul", "dBudgetMode", "buyHow", "dDemand", "dClasses", "dShow", "dPriority", "jWhere", "jCorpWallet", "jCorpChar", "jFrom", "jSource"]);
@@ -2828,7 +2828,8 @@
     const ahead = cheaper.reduce((a, b) => a + b.volume_remain, 0);
     const out = { qty: 0, cost: 0, profit: 0, maxPrice: 0, ahead, full: false, capped: false };
     if (!cheaper.length || !(perDay > 0)) return out;
-    const room = Math.max(0, Math.floor(settings.oBuyDays * perDay - remain));
+    // Never more than oBuyMax units in one buyout (0 = no limit).
+    const room = Math.min(Math.max(0, Math.floor(settings.oBuyDays * perDay - remain)), settings.oBuyMax > 0 ? settings.oBuyMax : Infinity);
     for (const b of cheaper) {
       const per = P * keep - b.price;
       if (per <= 0 || per / b.price < settings.oBuyRoi / 100) break;
@@ -2895,7 +2896,7 @@
         const bo = buyoutPlan(others, o.price, keep, perDay, o.volume_remain);
         if (bo.qty && bo.profit >= settings.dMinProfit) r.buy = bo;
         const buyText = r.buy ? ` Buying ${r.buy.full ? "all" : "the cheapest"} ${intf(r.buy.qty)} (up to ${isk(r.buy.maxPrice)} each, ${isk(r.buy.cost)}) and relisting at your price would make about ${isk(r.buy.profit)}` +
-          (r.buy.full ? ", and leaves you the lowest." : r.buy.capped ? ` (more would be over ${settings.oBuyDays} days of sales).` : ".") : "";
+          (r.buy.full ? ", and leaves you the lowest." : r.buy.capped ? ` (stopping there: more would be over ${settings.oBuyMax > 0 && r.buy.qty >= settings.oBuyMax ? `your ${settings.oBuyMax}-unit buyout limit` : `${settings.oBuyDays} days of sales`}).` : ".") : "";
         if (r.buy && r.buy.full) {
           r.verdict = "Buy out"; r.kind = "warn";
           r.why = `Cheaper listings are worth more relisted at your price.` + buyText + ` Leave your order as it is.`;

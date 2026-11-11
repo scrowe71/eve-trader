@@ -151,6 +151,7 @@ export async function findUpdates(ctx, costs, w) {
   const rr = 1 - (0.5 + 0.06 * Math.min(5, s.abr));
   const keep = 1 - ctx.tax - bf;
   const buyRoi = (s.oBuyRoi ?? 10) / 100, buyDays = s.oBuyDays ?? 14, minProfit = s.dMinProfit ?? 1e6;
+  const buyMax = (s.oBuyMax ?? 10) > 0 ? (s.oBuyMax ?? 10) : Infinity;
   const out = [];
   let pending = 0;
   for (const o of mySells) {
@@ -167,7 +168,7 @@ export async function findUpdates(ctx, costs, w) {
     // Buyout: every cheaper listing is worth buying and relisting at your price, and the stack still sells in time.
     if (per > 0) {
       const cheaper = others.filter((b) => b.price < o.price).sort((a, b) => a.price - b.price);
-      const room = Math.floor(buyDays * per - o.volume_remain);
+      const room = Math.min(Math.floor(buyDays * per - o.volume_remain), buyMax);
       let q = 0, cost = 0, profit = 0, maxPrice = 0, ok = true;
       for (const b of cheaper) {
         const gain = o.price * keep - b.price;
