@@ -193,6 +193,8 @@ Then, in the Trade journal tab:
 
 A small Cloudflare Worker (`watcher/`) checks your courier contracts every 10 minutes and posts to Discord when one is **picked up**, **delivered**, or **fails/is rejected**. It works with the site closed.
 
+**Currently turned off.** `COURIER_ALERTS = "off"` in `watcher\wrangler.toml` stops the courier posts while everything else keeps running. Change it to `"on"` and run `npx wrangler deploy` in the `watcher` folder to bring them back. Don't use **Turn off** on the site for this: it removes the whole registration, which also stops wallet copies, undercut alerts and the daily summary.
+
 ### One-time setup (at your PC, in PowerShell)
 
 1. **EVE app permissions:** at https://developers.eveonline.com, add `esi-contracts.read_character_contracts.v1` and `esi-contracts.read_corporation_contracts.v1` to your EVE app.

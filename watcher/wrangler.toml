@@ -20,3 +20,6 @@ database_id = "7d901161-e09c-4d26-baef-a2e2c156cf4f"
 
 [vars]
 EVE_CLIENT_ID = "d2d220b6f3734981ae7fdceeb8bcfde7"
+# Courier contract Discord alerts (picked up / delivered / failed): "off" or "on".
+# Wallet copies, hauling costs, undercut alerts and the daily summary keep running either way.
+COURIER_ALERTS = "off"

@@ -14,6 +14,10 @@ const UNDERCUT_EVERY_MS = 29 * 60 * 1000;   // undercut check about every 30 min
 
 const SUMMARY_CRON = "0 13 * * *";   // 8:00 AM Eastern (EST) every day
 
+// Courier contract Discord posts (picked up / delivered / failed). Set COURIER_ALERTS = "on" in
+// wrangler.toml to turn them back on. Contracts are still saved for hauling costs either way.
+const courierAlertsOn = (env) => String(env.COURIER_ALERTS ?? "on").toLowerCase() !== "off";
+
 async function summaryOne(env, key) {
   const w = await env.WATCH.get(key, "json");
   if (!w) return "missing";
@@ -145,7 +149,7 @@ async function checkOne(env, key, forceUndercut = false) {
     for (const [id, c] of couriers) {
       const was = seen[id];
       seen[id] = c.status;
-      if (first || was === c.status) continue;
+      if (first || was === c.status || !courierAlertsOn(env)) continue;
       const a = ALERT[c.status];
       if (!a) continue;
       const [from, to] = await Promise.all([placeName(c.start_location_id, access), placeName(c.end_location_id, access)]);
